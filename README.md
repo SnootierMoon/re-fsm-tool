@@ -3,6 +3,10 @@
 This is a web application that visualizes the minimum FSM representation of a
 regular language accepted by a regular expression.
 
+## Demo
+
+View a demo at [the GitHub page](https://snootiermoon.github.io/re-fsm-tool).
+
 ## Build & Run Locally
 
 ```sh

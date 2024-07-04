@@ -1,0 +1,42 @@
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  install:
+    runs-on: ubuntu-latest
+    name: Build and Install
+    steps:
+      - uses: actions/checkout@v3
+      - uses: mlugg/setup-zig@v1
+      - run: zig build install
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: zig-out
+  deploy:
+    needs: install
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: pub
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: pub
+      - id: deployment
+        uses: actions/deploy-pages@v4
