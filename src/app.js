@@ -20,7 +20,7 @@ window.onload = async function() {
         engine_options.append(option);
     }
 
-    const wasm_response = await fetch("bin/librefsm.wasm");
+    const wasm_response = await fetch("bin/ReFsm.wasm");
     const wasm_bytes = await wasm_response.arrayBuffer();
     wasm = await WebAssembly.instantiate(wasm_bytes, {});
     const add = wasm.instance.exports.add;

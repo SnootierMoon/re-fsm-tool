@@ -7,7 +7,7 @@ pub fn build(b: *std.Build) void {
     });
     const optimize = b.standardOptimizeOption(.{});
     const exe = b.addExecutable(.{
-        .name = "librefsm",
+        .name = "ReFsm",
         .root_source_file = b.path("src/exports.zig"),
         .target = target,
         .optimize = optimize,
@@ -16,12 +16,13 @@ pub fn build(b: *std.Build) void {
     exe.rdynamic = true;
     b.installArtifact(exe);
 
+    b.installFile("src/app.js", "app.js");
+    b.installFile("src/favicon.ico", "favicon.ico");
     b.installFile("src/index.html", "index.html");
     b.installFile("src/styles.css", "styles.css");
-    b.installFile("src/app.js", "app.js");
 
     const exe_unit_tests = b.addTest(.{
-        .root_source_file = b.path("src/refsm.zig"),
+        .root_source_file = b.path("src/re_fsm.zig"),
         .target = target,
         .optimize = optimize,
     });
