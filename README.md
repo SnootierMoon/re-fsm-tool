@@ -5,6 +5,8 @@ regular expression.
 
 This tool supports only the printable class of ASCII characters.
 
+\[WIP\]
+
 ## Demo
 
 View a demo at [the GitHub page](https://snootiermoon.github.io/re-fsm-tool).
