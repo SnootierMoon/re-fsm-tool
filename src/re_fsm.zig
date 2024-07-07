@@ -380,6 +380,7 @@ pub const ReAst = struct {
 
     pub fn viz(ast: ReAst, writer: anytype) !void {
         try writer.print("digraph {{", .{});
+        try writer.print(" node [shape=circle]", .{});
         for (ast.nodes.items(.tags), ast.nodes.items(.data), 0..ast.nodes.len) |tag, data, i| {
             switch (tag) {
                 .epsilon => try writer.print(" {} [label=\"epsilon\"]", .{i}),

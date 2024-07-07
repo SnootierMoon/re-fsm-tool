@@ -52,7 +52,7 @@ have the cool property that for any regular language, there is a unique DFA
 with the smallest number of states that precisely accepts the language. In
 other words, when asked to find the minimum DFA equivalent to a given regex,
 *there is only one right answer*. The goal of this project is to find that
-answer, for any regex (and in any syntax flavor, if I have time to do that).
+answer, for any regex in any common flavor.
 
 A pitfall of FSMs as opposed to backtracking is that the set of strings that an
 FSM accepts must be a *regular language*. Many features supported by modern
@@ -64,3 +64,21 @@ on generating pure FSMs, backreferences, capture groups, and other
 regular-language-unfriendly features will not be supported. Surprisingly, FSMs
 can still support many complicated regex features including [lookahead and
 lookbehind](https://www.regular-expressions.info/lookaround.html).
+
+## Spec
+
+Currently, this program is designed to support ASCII printable characters, the
+95 characters from ' ' (0x20) to '~' (0x7E), inclusive. Future versions may
+support the full set of ASCII characters, NUL (0x00) to DEL (0x7F).
+
+Implemented Re -> AST. TODO AST -> NFA, NFA -> DFA, DFA minimization.
+
+### Flavors
+
+Currently supports a mixed version of different flavors. Eventually, to
+support:
+
+ - Posix Basic/Extended
+ - Vim (extension of Posix Basic)
+ - PCRE/PCRE2
+ - Python, Java, Golang, Rust, C\#
