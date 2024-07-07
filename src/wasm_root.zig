@@ -1,6 +1,7 @@
 const std = @import("std");
 const ReAst = @import("re_fsm.zig").ReAst;
 const Nfa = @import("re_fsm.zig").Nfa;
+const Dfa = @import("re_fsm.zig").Dfa;
 
 pub const std_options: std.Options = .{
     .logFn = logImpl,
@@ -15,7 +16,7 @@ fn logImpl(
     args: anytype,
 ) void {
     _ = scope;
-    var buf: [1024]u8 = undefined;
+    var buf: [1 << 16]u8 = undefined;
     const lvl: u8 = switch (message_level) {
         .err => 3,
         .warn => 2,
@@ -37,13 +38,16 @@ fn run() !void {
     // try ast.viz(output_digraph.writer());
 
     std.log.debug("start nfa gen", .{});
-    var nfa = try Nfa.init(std.heap.wasm_allocator, ast);
+    var nfa = try Nfa.fromReAst(std.heap.wasm_allocator, ast);
     defer nfa.deinit(std.heap.wasm_allocator);
     std.log.debug("end ast gen", .{});
 
     std.log.debug("start nfa viz", .{});
     try nfa.viz(output_digraph.writer());
     std.log.info("end nfa viz", .{});
+
+    var dfa = try Dfa.fromNfa(std.heap.wasm_allocator, nfa);
+    defer dfa.deinit(std.heap.wasm_allocator);
 }
 
 var input_regex: []u8 = &.{};

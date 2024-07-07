@@ -286,7 +286,7 @@ pub const ReAst = struct {
         };
 
         var stream: Stream = .{ .str = str };
-        var nodes = std.MultiArrayList(Node){};
+        var nodes: std.MultiArrayList(Node) = .{};
         errdefer nodes.deinit(gpa);
 
         var stack = std.ArrayList(StackFrame).init(gpa);
@@ -310,7 +310,6 @@ pub const ReAst = struct {
                 try curr_frame.addAtomToTerm(gpa, &nodes);
             } else if (stream.getchIfEq('[')) {
                 try nodes.append(gpa, .{ .mask = try parseCharClass(&stream) });
-                std.log.info("{}", .{nodes.items(.data)[nodes.len-1].mask});
                 try parseQuantifier(gpa, &nodes, &stream);
                 try curr_frame.addAtomToTerm(gpa, &nodes);
             } else if (stream.getchIfEq('|')) {
@@ -449,24 +448,21 @@ pub const ReAst = struct {
 pub const Nfa = struct {
     states: usize,
     final0: usize,
-    deltas: []Delta,
+    edges: []Edge,
 
-    const Delta = struct {
+    const Edge = struct {
         from: usize,
-        sym: ?u8,
+        sym: ?u7,
         to: usize,
     };
 
-    pub fn init(gpa: std.mem.Allocator, ast: ReAst) !Nfa {
-        var arena_obj = std.heap.ArenaAllocator.init(gpa);
-        defer arena_obj.deinit();
-        const arena = arena_obj.allocator();
-
-        var deltas = std.ArrayList(Delta).init(gpa);
-        defer deltas.deinit();
+    pub fn fromReAst(gpa: std.mem.Allocator, ast: ReAst) !Nfa {
+        var edges = std.ArrayList(Edge).init(gpa);
+        defer edges.deinit();
 
         const StateInfo = struct { n_states: usize, state0: usize, n_finals: usize, final0: usize };
-        var infos = try arena.alloc(StateInfo, ast.nodes.len);
+        var infos = try gpa.alloc(StateInfo, ast.nodes.len);
+        defer gpa.free(infos);
 
         const slice = ast.nodes.slice();
         const tags = slice.items(.tags);
@@ -529,30 +525,30 @@ pub const Nfa = struct {
         for (0..ast.nodes.len) |idx| {
             switch (tags[idx]) {
                 .epsilon => {
-                    try deltas.append(.{ .from = infos[idx].state0, .sym = null, .to = infos[idx].final0 });
+                    try edges.append(.{ .from = infos[idx].state0, .sym = null, .to = infos[idx].final0 });
                 },
                 .mask => {
                     for (0..128) |i| {
                         if (data[idx].mask & (@as(u128, 1) << @intCast(i)) != 0) {
-                            try deltas.append(.{ .from = infos[idx].state0, .sym = @intCast(i), .to = infos[idx].final0 });
+                            try edges.append(.{ .from = infos[idx].state0, .sym = @intCast(i), .to = infos[idx].final0 });
                         }
                     }
                 },
                 .either => {
                     const lhs_idx = data[idx].either;
-                    try deltas.append(.{ .from = infos[idx].state0, .sym = null, .to = infos[lhs_idx].state0 });
-                    try deltas.append(.{ .from = infos[idx].state0, .sym = null, .to = infos[idx - 1].state0 });
+                    try edges.append(.{ .from = infos[idx].state0, .sym = null, .to = infos[lhs_idx].state0 });
+                    try edges.append(.{ .from = infos[idx].state0, .sym = null, .to = infos[idx - 1].state0 });
                 },
                 .concat => {
                     const lhs_idx = data[idx].concat;
                     for (0..infos[lhs_idx].n_finals) |i| {
-                        try deltas.append(.{ .from = infos[lhs_idx].final0 + i, .sym = null, .to = infos[idx - 1].state0 });
+                        try edges.append(.{ .from = infos[lhs_idx].final0 + i, .sym = null, .to = infos[idx - 1].state0 });
                     }
                 },
                 .look_around => return error.Unimplemented,
                 .repeat => {
                     for (0..infos[idx - 1].n_finals) |i| {
-                        try deltas.append(.{ .from = infos[idx - 1].final0 + i, .sym = null, .to = infos[idx - 1].state0 });
+                        try edges.append(.{ .from = infos[idx - 1].final0 + i, .sym = null, .to = infos[idx - 1].state0 });
                     }
                 },
             }
@@ -561,12 +557,12 @@ pub const Nfa = struct {
         return .{
             .states = infos[ast.nodes.len - 1].n_states,
             .final0 = infos[ast.nodes.len - 1].final0,
-            .deltas = try deltas.toOwnedSlice(),
+            .edges = try edges.toOwnedSlice(),
         };
     }
 
     pub fn deinit(nfa: *Nfa, gpa: std.mem.Allocator) void {
-        gpa.free(nfa.deltas);
+        gpa.free(nfa.edges);
     }
 
     pub fn viz(nfa: Nfa, writer: anytype) !void {
@@ -579,18 +575,148 @@ pub const Nfa = struct {
         for (nfa.final0..nfa.states) |i| {
             try writer.print(" {}\n", .{i});
         }
-        for (nfa.deltas) |delta| {
-            if (delta.sym) |sym| {
-                try writer.print(" {} -> {} [label=\"{c}\"]", .{ delta.from, delta.to, sym });
+        for (nfa.edges) |edge| {
+            if (edge.sym) |sym| {
+                try writer.print(" {} -> {} [label=\"{c}\"]", .{ edge.from, edge.to, sym });
             } else {
-                try writer.print(" {} -> {}", .{ delta.from, delta.to });
+                try writer.print(" {} -> {}", .{ edge.from, edge.to });
             }
         }
         try writer.print(" }}", .{});
     }
 };
 
-const Dfa = struct {
-    delta: [][128]usize,
-    final: std.DynamicBitSetUnmanaged,
+pub const Dfa = struct {
+    edges: [][128]usize,
+
+    const set = struct {
+        fn find(items: []const usize, key: usize) struct { bool, usize } {
+            var lo: usize = 0;
+            var hi = items.len;
+            while (lo < hi) {
+                const mid = lo + (hi - lo) / 2;
+                if (items[mid] >= key) {
+                    hi = mid;
+                } else {
+                    lo = mid + 1;
+                }
+            }
+            return .{ lo < items.len and items[lo] == key, lo };
+        }
+
+        fn insert(arena: std.mem.Allocator, s: *std.ArrayListUnmanaged(usize), key: usize) !bool {
+            const found, const idx = find(s.items, key);
+            if (!found) {
+                try s.insert(arena, idx, key);
+                return true;
+            }
+            return false;
+        }
+
+        fn includes(lhs: []const usize, rhs: []const usize) bool {
+            return for (lhs) |i| {
+                const found, _ = find(rhs, i);
+                if (!found) {
+                    break false;
+                }
+            } else true;
+        }
+
+        fn equals(lhs: []const usize, rhs: []const usize) bool {
+            return lhs.len == rhs.len and includes(lhs, rhs);
+        }
+    };
+
+    const NfaEdges = struct {
+        map: Map,
+
+        const Map = std.AutoHashMapUnmanaged(struct { usize, ?u7 }, std.ArrayListUnmanaged(usize));
+
+        fn init(arena: std.mem.Allocator, edges: []Nfa.Edge) !NfaEdges {
+            var map = Map{};
+            for (edges) |edge| {
+                const gop = try map.getOrPut(arena, .{ edge.from, edge.sym });
+                if (!gop.found_existing) {
+                    gop.value_ptr.* = .{};
+                }
+                try gop.value_ptr.append(arena, edge.to);
+            }
+
+            return .{ .map = map };
+        }
+
+        fn eClosure(nfa_edges: *NfaEdges, arena: std.mem.Allocator, states: *std.ArrayListUnmanaged(usize)) !void {
+            var pq = std.PriorityQueue(usize, void, struct {
+                fn f(ctx: void, lhs: usize, rhs: usize) std.math.Order {
+                    _ = ctx;
+                    return std.math.order(rhs, lhs);
+                }
+            }.f).init(arena, {});
+            try pq.addSlice(states.items);
+            while (pq.removeOrNull()) |state| {
+                if (nfa_edges.map.get(.{ state, null })) |to_list| {
+                    for (to_list.items) |to| {
+                        if (try set.insert(arena, states, to)) {
+                            try pq.add(to);
+                        }
+                    }
+                }
+            }
+        }
+
+        fn move(nfa_edges: NfaEdges, arena: std.mem.Allocator, states: []const usize, sym: u7) !std.ArrayListUnmanaged(usize) {
+            var result: std.ArrayListUnmanaged(usize) = .{};
+            for (states) |state| {
+                if (nfa_edges.map.get(.{ state, sym })) |to_list| {
+                    for (to_list.items) |to| {
+                        _ = try set.insert(arena, &result, to);
+                    }
+                }
+            }
+            return result;
+        }
+    };
+
+    pub fn fromNfa(gpa: std.mem.Allocator, nfa: Nfa) !Dfa {
+        var arena_obj = std.heap.ArenaAllocator.init(gpa);
+        defer arena_obj.deinit();
+        const arena = arena_obj.allocator();
+
+        var nfa_edges = try NfaEdges.init(arena, nfa.edges);
+        var state_sets: std.ArrayListUnmanaged([]usize) = .{};
+
+        var edges: std.ArrayListUnmanaged([128]usize) = .{};
+        defer edges.deinit(gpa);
+
+        var state0: std.ArrayListUnmanaged(usize) = .{};
+        try state0.append(arena, 0);
+        try nfa_edges.eClosure(arena, &state0);
+        try state_sets.append(arena, try state0.toOwnedSlice(arena));
+
+        var i: usize = 0;
+        while (i < state_sets.items.len) : (i += 1) {
+            const state_edges = try edges.addOne(gpa);
+            for (0..128) |sym| {
+                var new_state = try nfa_edges.move(arena, state_sets.items[i], @intCast(sym));
+                try nfa_edges.eClosure(arena, &new_state);
+
+                const idx = for (0..state_sets.items.len) |j| {
+                    if (std.mem.eql(usize, new_state.items, state_sets.items[j])) {
+                        break j;
+                    }
+                } else blk: {
+                    try state_sets.append(arena, try new_state.toOwnedSlice(arena));
+                    break :blk state_sets.items.len - 1;
+                };
+
+                state_edges[sym] = idx;
+            }
+        }
+
+        return .{ .edges = try edges.toOwnedSlice(gpa) };
+    }
+
+    pub fn deinit(dfa: Dfa, gpa: std.mem.Allocator) void {
+        gpa.free(dfa.edges);
+    }
 };
