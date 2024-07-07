@@ -28,17 +28,22 @@ fn logImpl(
 }
 
 fn run() !void {
+    std.log.debug("start ast parse", .{});
     var ast = try ReAst.parse(std.heap.wasm_allocator, input_regex);
     defer ast.deinit(std.heap.wasm_allocator);
+    std.log.debug("end ast parse", .{});
 
     output_digraph.clearRetainingCapacity();
     // try ast.viz(output_digraph.writer());
 
+    std.log.debug("start nfa gen", .{});
     var nfa = try Nfa.init(std.heap.wasm_allocator, ast);
     defer nfa.deinit(std.heap.wasm_allocator);
+    std.log.debug("end ast gen", .{});
 
+    std.log.debug("start nfa viz", .{});
     try nfa.viz(output_digraph.writer());
-    std.log.info("{any}\n", .{nfa});
+    std.log.info("end nfa viz", .{});
 }
 
 var input_regex: []u8 = &.{};

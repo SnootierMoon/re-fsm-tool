@@ -205,7 +205,7 @@ pub const ReAst = struct {
                             class_mask &= ~(@as(u128, 1) << @intCast(last_ch));
                             const lo = @min(last_ch, next_ch);
                             const hi = @max(last_ch, next_ch);
-                            class_mask |= (std.math.shr(u128, 1, hi - lo + 1) -% 1) << @intCast(lo);
+                            class_mask |= (std.math.shl(u128, 1, hi - lo + 1) -% 1) << @intCast(lo);
                             continue;
                         }
                     } else {
@@ -310,6 +310,7 @@ pub const ReAst = struct {
                 try curr_frame.addAtomToTerm(gpa, &nodes);
             } else if (stream.getchIfEq('[')) {
                 try nodes.append(gpa, .{ .mask = try parseCharClass(&stream) });
+                std.log.info("{}", .{nodes.items(.data)[nodes.len-1].mask});
                 try parseQuantifier(gpa, &nodes, &stream);
                 try curr_frame.addAtomToTerm(gpa, &nodes);
             } else if (stream.getchIfEq('|')) {
@@ -387,7 +388,7 @@ pub const ReAst = struct {
         } else {
             var first = true;
             var start: ?u8 = null;
-            for (32..127) |i| {
+            for (32..128) |i| {
                 if (mask & (@as(u128, 1) << @intCast(i)) != 0) {
                     if (start == null) {
                         start = @as(u8, @intCast(i));
@@ -531,8 +532,8 @@ pub const Nfa = struct {
                     try deltas.append(.{ .from = infos[idx].state0, .sym = null, .to = infos[idx].final0 });
                 },
                 .mask => {
-                    for (0..127) |i| {
-                        if (data[idx].mask & (@as(u127, 1) << @intCast(i)) != 0) {
+                    for (0..128) |i| {
+                        if (data[idx].mask & (@as(u128, 1) << @intCast(i)) != 0) {
                             try deltas.append(.{ .from = infos[idx].state0, .sym = @intCast(i), .to = infos[idx].final0 });
                         }
                     }
@@ -587,4 +588,9 @@ pub const Nfa = struct {
         }
         try writer.print(" }}", .{});
     }
+};
+
+const Dfa = struct {
+    delta: [][128]usize,
+    final: std.DynamicBitSetUnmanaged,
 };
