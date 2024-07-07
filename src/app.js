@@ -49,7 +49,6 @@ function onUserInput() {
 
     const input_regex = input.value;
     const input_regex_addr = alloc_input_regex(input_regex.length);
-    console.log(input_regex, input_regex_addr);
 
     if (0 <= input_regex_addr &&
         input_regex_addr + input_regex.length <= wasm_memory.buffer.byteLength) {
