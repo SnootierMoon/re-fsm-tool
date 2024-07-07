@@ -32,11 +32,12 @@ fn run() !void {
     defer ast.deinit(std.heap.wasm_allocator);
 
     output_digraph.clearRetainingCapacity();
-    try ast.viz(output_digraph.writer());
+    // try ast.viz(output_digraph.writer());
 
     var nfa = try Nfa.init(std.heap.wasm_allocator, ast);
     defer nfa.deinit(std.heap.wasm_allocator);
-    
+
+    try nfa.viz(output_digraph.writer());
     std.log.info("{any}\n", .{nfa});
 }
 

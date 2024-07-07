@@ -82,4 +82,4 @@ function onUserInput() {
 }
 
 
-input.addEventListener("keyup", onUserInput);
+input.addEventListener("input", onUserInput);

@@ -44,10 +44,10 @@ pub const ReAst = struct {
         return std.ascii.isAscii(ch) and !isSpecial(ch);
     }
 
-    fn popANode(nodes: *std.MultiArrayList(Node)) void {
+    fn nodeStartIdx(nodes: *std.MultiArrayList(Node)) usize {
         var idx = nodes.len - 1;
         const slice = nodes.slice();
-        nodes.len = while (true) {
+        return while (true) {
             switch (slice.get(idx)) {
                 .epsilon, .mask => break idx,
                 .either => |i| idx = i,
@@ -57,26 +57,51 @@ pub const ReAst = struct {
         };
     }
 
+    fn copyNode(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), start: usize, end: usize) !void {
+        try nodes.ensureUnusedCapacity(gpa, end - start);
+        const slice = nodes.slice();
+        const tags = slice.items(.tags);
+        const data = slice.items(.data);
+        const to = nodes.len;
+        for (start..end) |idx| {
+            switch (tags[idx]) {
+                .epsilon => nodes.appendAssumeCapacity(.{ .epsilon = {} }),
+                .mask => nodes.appendAssumeCapacity(.{ .mask = data[idx].mask }),
+                .either => nodes.appendAssumeCapacity(.{ .either = data[idx].either - start + to }),
+                .concat => nodes.appendAssumeCapacity(.{ .concat = data[idx].concat - start + to }),
+                .look_around => nodes.appendAssumeCapacity(.{ .look_around = data[idx].look_around }),
+                .repeat => nodes.appendAssumeCapacity(.{ .repeat = {} }),
+            }
+        }
+    }
+
     fn genRepeat(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), low: usize, high: ?usize) !void {
-        const idx = nodes.len - 1;
+        const inner_start = nodeStartIdx(nodes);
+        const inner_end = nodes.len;
         if (high) |high_| {
             std.debug.assert(low <= high_);
             if (high_ == 0) {
-                popANode(nodes);
+                nodes.len = inner_start;
                 try nodes.append(gpa, .{ .epsilon = {} });
             } else if (low == high_) {
                 for (1..low) |_| {
+                    const idx = nodes.len - 1;
+                    try copyNode(gpa, nodes, inner_start, inner_end);
                     try nodes.append(gpa, .{ .concat = idx });
                 }
             } else {
                 try nodes.append(gpa, .{ .epsilon = {} });
-                try nodes.append(gpa, .{ .either = idx });
+                try nodes.append(gpa, .{ .either = nodes.len - 2 });
                 for (low + 1..high_) |_| {
+                    const idx = nodes.len - 1;
+                    try copyNode(gpa, nodes, inner_start, inner_end);
                     try nodes.append(gpa, .{ .concat = idx });
                     try nodes.append(gpa, .{ .epsilon = {} });
                     try nodes.append(gpa, .{ .either = nodes.len - 2 });
                 }
                 for (0..low) |_| {
+                    const idx = nodes.len - 1;
+                    try copyNode(gpa, nodes, inner_start, inner_end);
                     try nodes.append(gpa, .{ .concat = idx });
                 }
             }
@@ -87,6 +112,8 @@ pub const ReAst = struct {
         } else {
             try nodes.append(gpa, .{ .repeat = {} });
             for (1..low) |_| {
+                const idx = nodes.len - 1;
+                try copyNode(gpa, nodes, inner_start, inner_end);
                 try nodes.append(gpa, .{ .concat = idx });
             }
         }
@@ -423,7 +450,7 @@ pub const Nfa = struct {
     final0: usize,
     deltas: []Delta,
 
-    const Delta = struct { 
+    const Delta = struct {
         from: usize,
         sym: ?u8,
         to: usize,
@@ -455,18 +482,18 @@ pub const Nfa = struct {
                 },
                 .either => {
                     const lhs_idx = data[idx].either;
-                    infos[idx].n_states = 1 + infos[lhs_idx].n_states + infos[idx-1].n_states;
-                    infos[idx].n_finals = infos[lhs_idx].n_finals + infos[idx-1].n_finals;
+                    infos[idx].n_states = 1 + infos[lhs_idx].n_states + infos[idx - 1].n_states;
+                    infos[idx].n_finals = infos[lhs_idx].n_finals + infos[idx - 1].n_finals;
                 },
                 .concat => {
                     const lhs_idx = data[idx].concat;
-                    infos[idx].n_states = infos[lhs_idx].n_states + infos[idx-1].n_states;
-                    infos[idx].n_finals = infos[idx-1].n_finals;
+                    infos[idx].n_states = infos[lhs_idx].n_states + infos[idx - 1].n_states;
+                    infos[idx].n_finals = infos[idx - 1].n_finals;
                 },
                 .look_around => return error.Unimplemented,
                 .repeat => {
-                    infos[idx].n_states = infos[idx-1].n_states;
-                    infos[idx].n_finals = infos[idx-1].n_finals;
+                    infos[idx].n_states = infos[idx - 1].n_states;
+                    infos[idx].n_finals = infos[idx - 1].n_finals;
                 },
             }
         }
@@ -480,7 +507,7 @@ pub const Nfa = struct {
                     const lhs_idx = data[idx].either;
                     infos[lhs_idx].state0 = infos[idx].state0 + 1;
                     infos[lhs_idx].final0 = infos[idx].final0;
-                    infos[idx - 1].state0 = infos[idx].state0 + infos[lhs_idx].n_states + 1;
+                    infos[idx - 1].state0 = infos[idx].state0 + infos[lhs_idx].n_states - infos[lhs_idx].n_finals + 1;
                     infos[idx - 1].final0 = infos[idx].final0 + infos[lhs_idx].n_finals;
                 },
                 .concat => {
@@ -526,7 +553,7 @@ pub const Nfa = struct {
                     for (0..infos[idx - 1].n_finals) |i| {
                         try deltas.append(.{ .from = infos[idx - 1].final0 + i, .sym = null, .to = infos[idx - 1].state0 });
                     }
-                }
+                },
             }
         }
 
@@ -539,5 +566,25 @@ pub const Nfa = struct {
 
     pub fn deinit(nfa: *Nfa, gpa: std.mem.Allocator) void {
         gpa.free(nfa.deltas);
+    }
+
+    pub fn viz(nfa: Nfa, writer: anytype) !void {
+        try writer.print("digraph {{", .{});
+        try writer.print(" node [shape=circle]", .{});
+        for (0..nfa.final0) |i| {
+            try writer.print(" {}\n", .{i});
+        }
+        try writer.print(" node [shape=rect]", .{});
+        for (nfa.final0..nfa.states) |i| {
+            try writer.print(" {}\n", .{i});
+        }
+        for (nfa.deltas) |delta| {
+            if (delta.sym) |sym| {
+                try writer.print(" {} -> {} [label=\"{c}\"]", .{ delta.from, delta.to, sym });
+            } else {
+                try writer.print(" {} -> {}", .{ delta.from, delta.to });
+            }
+        }
+        try writer.print(" }}", .{});
     }
 };
