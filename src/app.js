@@ -66,6 +66,8 @@ function onUserInput() {
     const dot_digraph = new TextDecoder()
         .decode(new Uint8Array(wasm_memory.buffer, get_digraph_addr(), get_digraph_length()));
 
+    console.log(dot_digraph);
+
     const g = graphlibDot.read(dot_digraph);
     // Set margins, if not present
     if (!g.graph().hasOwnProperty("marginx") &&

@@ -75,10 +75,15 @@ Implemented Re -> AST. TODO AST -> NFA, NFA -> DFA, DFA minimization.
 
 ### Flavors
 
-Currently supports a mixed version of different flavors. Eventually, to
+Currently supports a weird mixed version of different flavors. Eventually, to
 support:
 
  - Posix Basic/Extended
  - Vim (extension of Posix Basic)
  - PCRE/PCRE2
  - Python, Java, Golang, Rust, C\#
+
+### Renderers
+
+ - Viz.js looks nice, but has a low state limit
+ - Dagre/D3 looks a little worse, but has an incredibly high state limit

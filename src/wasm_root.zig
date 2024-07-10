@@ -1,7 +1,7 @@
 const std = @import("std");
-const ReAst = @import("re_fsm.zig").ReAst;
-const Nfa = @import("re_fsm.zig").Nfa;
-const Dfa = @import("re_fsm.zig").Dfa;
+const Ast = @import("re_fsm/Ast.zig");
+const Nfa = @import("re_fsm/Nfa.zig");
+const Dfa = @import("re_fsm/Dfa.zig");
 
 pub const std_options: std.Options = .{
     .logFn = logImpl,
@@ -30,7 +30,7 @@ fn logImpl(
 
 fn run() !void {
     std.log.debug("start ast parse", .{});
-    var ast = try ReAst.parse(std.heap.wasm_allocator, input_regex);
+    var ast = try Ast.parse(std.heap.wasm_allocator, input_regex);
     defer ast.deinit(std.heap.wasm_allocator);
     std.log.debug("end ast parse", .{});
 
@@ -38,7 +38,7 @@ fn run() !void {
     // try ast.viz(output_digraph.writer());
 
     std.log.debug("start nfa gen", .{});
-    var nfa = try Nfa.fromReAst(std.heap.wasm_allocator, ast);
+    var nfa = try Nfa.fromAst(std.heap.wasm_allocator, ast);
     defer nfa.deinit(std.heap.wasm_allocator);
     std.log.debug("end ast gen", .{});
 
@@ -46,8 +46,8 @@ fn run() !void {
     try nfa.viz(output_digraph.writer());
     std.log.info("end nfa viz", .{});
 
-    var dfa = try Dfa.fromNfa(std.heap.wasm_allocator, nfa);
-    defer dfa.deinit(std.heap.wasm_allocator);
+    // var dfa = try Dfa.fromNfa(std.heap.wasm_allocator, nfa);
+    // defer dfa.deinit(std.heap.wasm_allocator);
 }
 
 var input_regex: []u8 = &.{};
