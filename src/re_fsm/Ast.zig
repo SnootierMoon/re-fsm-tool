@@ -128,15 +128,15 @@ fn genRepeat(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), low: usiz
 
 const Stream = struct {
     str: []const u8,
-    i: usize = 0,
+    loc: usize = 0,
 
     fn hasRemaining(s: Stream) bool {
-        return s.i < s.str.len;
+        return s.loc < s.str.len;
     }
 
     fn peekChar(s: Stream) ?u8 {
         if (s.hasRemaining()) {
-            return s.str[s.i];
+            return s.str[s.loc];
         } else {
             return null;
         }
@@ -144,25 +144,25 @@ const Stream = struct {
 
     fn readChar(s: *Stream) ?u8 {
         if (s.hasRemaining()) {
-            defer s.i += 1;
-            return s.str[s.i];
+            defer s.loc += 1;
+            return s.str[s.loc];
         } else {
             return null;
         }
     }
 
     fn readCharIf(s: *Stream, predicate: fn (u8) bool) ?u8 {
-        if (s.hasRemaining() and predicate(s.str[s.i])) {
-            defer s.i += 1;
-            return s.str[s.i];
+        if (s.hasRemaining() and predicate(s.str[s.loc])) {
+            defer s.loc += 1;
+            return s.str[s.loc];
         } else {
             return null;
         }
     }
 
     fn readCharIfEq(s: *Stream, ch: u8) bool {
-        if (s.hasRemaining() and s.str[s.i] == ch) {
-            defer s.i += 1;
+        if (s.hasRemaining() and s.str[s.loc] == ch) {
+            defer s.loc += 1;
             return true;
         } else {
             return false;
@@ -170,9 +170,9 @@ const Stream = struct {
     }
 
     fn readCharIfNeq(s: *Stream, ch: u8) ?u8 {
-        if (s.hasRemaining() and s.str[s.i] != ch) {
-            defer s.i += 1;
-            return s.str[s.i];
+        if (s.hasRemaining() and s.str[s.loc] != ch) {
+            defer s.loc += 1;
+            return s.str[s.loc];
         } else {
             return null;
         }
@@ -224,6 +224,7 @@ const Stream = struct {
         }
         return if (negated) ~class_mask else class_mask;
     }
+
     fn readQuantifier(s: *Stream, gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node)) !void {
         if (s.readCharIfEq('*')) {
             try genRepeat(gpa, nodes, 0, null);
@@ -334,12 +335,12 @@ pub fn parse(gpa: std.mem.Allocator, str: []const u8) !Ast {
             curr_frame = StackFrame{ .look_around = look_around };
         } else if (s.readCharIfEq(')')) {
             var old_frame = stack.popOrNull() orelse return error.Parse;
-            try s.readQuantifier(gpa, &nodes);
             try curr_frame.addTermToExpr(gpa, &nodes);
             try old_frame.addAtomToTerm(gpa, &nodes);
             if (curr_frame.look_around) |look_around| {
                 try nodes.append(gpa, .{ .look_around = look_around });
             }
+            try s.readQuantifier(gpa, &nodes);
             curr_frame = old_frame;
         } else {
             return error.Parse;

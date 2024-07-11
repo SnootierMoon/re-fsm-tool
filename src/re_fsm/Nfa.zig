@@ -17,14 +17,14 @@ pub fn fromAst(gpa: std.mem.Allocator, ast: Ast) !Nfa {
     var edges = std.ArrayList(Edge).init(gpa);
     defer edges.deinit();
 
-    var info: std.MultiArrayList(struct { reject_count: usize, reject_index: usize, accept_count: usize, accept_index: usize, }) = .{};
-    defer info.deinit(gpa);
-    try info.resize(gpa, ast.nodes.len);
-    const info_slice = info.slice();
-    const reject_count = info_slice.items(.reject_count);
-    const reject_index = info_slice.items(.reject_index);
-    const accept_count = info_slice.items(.accept_count);
-    const accept_index = info_slice.items(.accept_index);
+    const reject_count = try gpa.alloc(usize, ast.nodes.len);
+    defer gpa.free(reject_count);
+    const accept_count = try gpa.alloc(usize, ast.nodes.len);
+    defer gpa.free(accept_count);
+    const reject_index = try gpa.alloc(usize, ast.nodes.len);
+    defer gpa.free(reject_index);
+    const accept_index = try gpa.alloc(usize, ast.nodes.len);
+    defer gpa.free(accept_index);
 
     const ast_slice = ast.nodes.slice();
     const ast_tags = ast_slice.items(.tags);
@@ -54,8 +54,6 @@ pub fn fromAst(gpa: std.mem.Allocator, ast: Ast) !Nfa {
         }
     }
 
-    std.log.info("{s}\n", .{"hi"});
-
     reject_index[ast.nodes.len - 1] = 0;
     accept_index[ast.nodes.len - 1] = reject_count[ast.nodes.len - 1];
     for (0..ast.nodes.len) |index_rev| {
@@ -79,7 +77,7 @@ pub fn fromAst(gpa: std.mem.Allocator, ast: Ast) !Nfa {
             .look_around => return error.Unimplemented,
             .repeat => {
                 reject_index[index - 1] = reject_index[index];
-                accept_index[index - 1] = reject_index[index];
+                accept_index[index - 1] = accept_index[index];
             },
         }
     }
@@ -141,7 +139,6 @@ pub fn viz(nfa: Nfa, writer: anytype) !void {
         if (edge.sym) |sym| {
             if (sym == '\\' or sym == '\"' or !std.ascii.isAscii(sym)) {
                 try writer.print(" {} -> {} [label=\"{}\"]", .{ edge.from, edge.to, sym });
-                std.log.info("{}", .{sym});
             } else {
                 try writer.print(" {} -> {} [label=\"{c}\"]", .{ edge.from, edge.to, sym });
             }

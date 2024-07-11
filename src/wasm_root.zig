@@ -29,25 +29,24 @@ fn logImpl(
 }
 
 fn run() !void {
-    std.log.debug("start ast parse", .{});
     var ast = try Ast.parse(std.heap.wasm_allocator, input_regex);
     defer ast.deinit(std.heap.wasm_allocator);
-    std.log.debug("end ast parse", .{});
 
     output_digraph.clearRetainingCapacity();
     // try ast.viz(output_digraph.writer());
 
-    std.log.debug("start nfa gen", .{});
     var nfa = try Nfa.fromAst(std.heap.wasm_allocator, ast);
     defer nfa.deinit(std.heap.wasm_allocator);
-    std.log.debug("end ast gen", .{});
 
-    std.log.debug("start nfa viz", .{});
-    try nfa.viz(output_digraph.writer());
-    std.log.info("end nfa viz", .{});
+    // try nfa.viz(output_digraph.writer());
 
-    // var dfa = try Dfa.fromNfa(std.heap.wasm_allocator, nfa);
-    // defer dfa.deinit(std.heap.wasm_allocator);
+    var dfa = try Dfa.fromNfa(std.heap.wasm_allocator, nfa);
+    defer dfa.deinit(std.heap.wasm_allocator);
+
+    var min_dfa = try dfa.minimize(std.heap.wasm_allocator);
+    defer min_dfa.deinit(std.heap.wasm_allocator);
+
+    try min_dfa.viz(output_digraph.writer());
 }
 
 var input_regex: []u8 = &.{};
@@ -58,7 +57,6 @@ export fn alloc_input_regex(len: usize) ?[*]u8 {
         std.log.err("failed to allocate {} bytes for input\n", .{len});
         return null;
     };
-    std.log.debug("allocated {} bytes for input\n", .{len});
     return input_regex.ptr;
 }
 

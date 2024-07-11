@@ -7,8 +7,6 @@ states: std.MultiArrayList(State),
 
 const State = struct {
     final: bool,
-    // perf: add a u128 for "active" edges - ones that don't lead to {}, empty
-    // set
     edges: [128]usize,
 };
 
@@ -27,10 +25,10 @@ const set = struct {
         return .{ lo < items.len and items[lo] == key, lo };
     }
 
-    fn insert(arena: std.mem.Allocator, s: *std.ArrayListUnmanaged(usize), key: usize) !bool {
-        const found, const idx = find(s.items, key);
+    fn insert(gpa: std.mem.Allocator, items: *std.ArrayListUnmanaged(usize), key: usize) !bool {
+        const found, const index = find(items.items, key);
         if (!found) {
-            try s.insert(arena, idx, key);
+            try items.insert(gpa, index, key);
             return true;
         }
         return false;
@@ -41,60 +39,61 @@ const set = struct {
             _ = ctx;
             return @truncate(std.hash.Wyhash.hash(0, std.mem.sliceAsBytes(k)));
         }
-        pub fn eql(ctx: HashCtx, k1: []const usize, k2: []const usize, k2_idx: usize) bool {
-            _ = .{ ctx, k2_idx };
+        pub fn eql(ctx: HashCtx, k1: []const usize, k2: []const usize, k2_index: usize) bool {
+            _ = .{ ctx, k2_index };
             return std.mem.eql(usize, k1, k2);
         }
     };
 };
 
 const NfaEdges = struct {
-    map: Map,
+    map: NfaEdgeMap,
+    state_set: std.ArrayListUnmanaged(usize) = .{},
+    pq: EClosurePriorityQueue,
 
-    const Map = std.AutoHashMapUnmanaged(struct { usize, ?u7 }, std.ArrayListUnmanaged(usize));
-
-    fn init(arena: std.mem.Allocator, edges: []Nfa.Edge) !NfaEdges {
-        var map = Map{};
-        for (edges) |edge| {
-            const gop = try map.getOrPut(arena, .{ edge.from, edge.sym });
-            if (!gop.found_existing) {
-                gop.value_ptr.* = .{};
-            }
-            try gop.value_ptr.append(arena, edge.to);
-        }
-
-        return .{ .map = map };
-    }
-
-    fn eClosure(nfa_edges: *NfaEdges, arena: std.mem.Allocator, state_set: *std.ArrayListUnmanaged(usize)) !void {
-        var pq = std.PriorityQueue(usize, void, struct {
+    const EClosurePriorityQueue = std.PriorityQueue(usize, void, struct {
             fn f(ctx: void, lhs: usize, rhs: usize) std.math.Order {
                 _ = ctx;
                 return std.math.order(rhs, lhs);
             }
-        }.f).init(arena, {});
-        try pq.addSlice(state_set.items);
-        while (pq.removeOrNull()) |state| {
-            if (nfa_edges.map.get(.{ state, null })) |to_list| {
-                for (to_list.items) |to| {
-                    if (try set.insert(arena, state_set, to)) {
-                        try pq.add(to);
+    }.f);
+
+    const NfaEdgeMap = std.AutoHashMapUnmanaged(struct { usize, ?u7 }, std.ArrayListUnmanaged(usize));
+
+    fn init(gpa: std.mem.Allocator, edges: []Nfa.Edge) !NfaEdges {
+        var map = NfaEdgeMap{};
+        for (edges) |edge| {
+            const entry = try map.getOrPutValue(gpa, .{ edge.from, edge.sym }, .{});
+            try entry.value_ptr.append(gpa, edge.to);
+        }
+
+        return .{ .map = map, .pq = EClosurePriorityQueue.init(gpa, {}) };
+    }
+
+    fn eClosure(nfa_edges: *NfaEdges, gpa: std.mem.Allocator) !void {
+        // https://github.com/ziglang/zig/pull/20282
+        nfa_edges.pq.items.len = 0;
+        try nfa_edges.pq.addSlice(nfa_edges.state_set.items);
+        while (nfa_edges.pq.removeOrNull()) |state| {
+            if (nfa_edges.map.get(.{ state, null })) |to_states| {
+                for (to_states.items) |to_state| {
+                    if (try set.insert(gpa, &nfa_edges.state_set, to_state)) {
+                        try nfa_edges.pq.add(to_state);
                     }
                 }
             }
         }
     }
 
-    fn move(nfa_edges: NfaEdges, arena: std.mem.Allocator, state_set: []const usize, sym: u7) !std.ArrayListUnmanaged(usize) {
-        var new_state_set: std.ArrayListUnmanaged(usize) = .{};
-        for (state_set) |state| {
-            if (nfa_edges.map.get(.{ state, sym })) |to_list| {
-                for (to_list.items) |to| {
-                    _ = try set.insert(arena, &new_state_set, to);
+    fn move(nfa_edges: *NfaEdges, gpa: std.mem.Allocator, from: []const usize, sym: u7) !void {
+        nfa_edges.state_set.clearRetainingCapacity();
+        for (from) |from_state| {
+            if (nfa_edges.map.get(.{ from_state, sym })) |to_states| {
+                for (to_states.items) |to_state| {
+                    _ = try set.insert(gpa, &nfa_edges.state_set, to_state);
                 }
             }
         }
-        return new_state_set;
     }
 };
 
@@ -104,24 +103,30 @@ pub fn fromNfa(gpa: std.mem.Allocator, nfa: Nfa) !Dfa {
     const arena = arena_obj.allocator();
 
     var nfa_edges = try NfaEdges.init(arena, nfa.edges);
+
     var nfa_to_dfa: std.ArrayHashMapUnmanaged([]const usize, void, set.HashCtx, true) = .{};
-
     var dfa_states: std.MultiArrayList(State) = .{};
+    errdefer dfa_states.deinit(gpa);
 
-    var dfa_state0_set: std.ArrayListUnmanaged(usize) = .{};
-    try dfa_state0_set.append(arena, 0);
-    try nfa_edges.eClosure(arena, &dfa_state0_set);
-    try nfa_to_dfa.putNoClobber(arena, try dfa_state0_set.toOwnedSlice(arena), {});
+    try nfa_edges.state_set.append(arena, 0);
+    try nfa_edges.eClosure(arena);
+    try nfa_to_dfa.putNoClobber(arena, try nfa_edges.state_set.toOwnedSlice(arena), {});
 
-    var curr_idx: usize = 0;
-    while (curr_idx < nfa_to_dfa.count()) : (curr_idx += 1) {
-        _ = try dfa_states.addOne(gpa);
+    while (dfa_states.len < nfa_to_dfa.count()) {
+        const state = try dfa_states.addOne(gpa);
         for (0..128) |sym| {
-            var new_state_set = try nfa_edges.move(arena, nfa_to_dfa.entries.items(.key)[curr_idx], @intCast(sym));
-            try nfa_edges.eClosure(arena, &new_state_set);
+            const slice = dfa_states.slice();
+            const from_state_set = nfa_to_dfa.entries.items(.key)[state];
+            const from_edges = &slice.items(.edges)[state];
 
-            const gop = try nfa_to_dfa.getOrPut(arena, try new_state_set.toOwnedSlice(arena));
-            dfa_states.items(.edges)[curr_idx][sym] = gop.index;
+            try nfa_edges.move(arena, from_state_set, @intCast(sym));
+            try nfa_edges.eClosure(arena);
+
+            const gop = try nfa_to_dfa.getOrPut(arena, nfa_edges.state_set.items);
+            if (!gop.found_existing) {
+                gop.key_ptr.* = try nfa_edges.state_set.toOwnedSlice(arena);
+            }
+            from_edges[sym] = gop.index;
         }
     }
 
@@ -135,6 +140,142 @@ pub fn fromNfa(gpa: std.mem.Allocator, nfa: Nfa) !Dfa {
 }
 
 pub fn deinit(dfa: *Dfa, gpa: std.mem.Allocator) void {
-    std.log.debug("{any}", .{dfa.states.items(.final)});
     dfa.states.deinit(gpa);
+}
+
+pub fn minimize(dfa: Dfa, gpa: std.mem.Allocator) !Dfa {
+    const slice = dfa.states.slice();
+    const state_finals = slice.items(.final);
+    const state_edges = slice.items(.edges);
+
+    var states_ordered = try gpa.alloc(usize, dfa.states.len);
+    defer gpa.free(states_ordered);
+
+    var state_partitions = try gpa.alloc(usize, dfa.states.len);
+    defer gpa.free(state_partitions);
+
+    var p = std.ArrayList([]usize).init(gpa);
+    defer p.deinit();
+    {
+        var lo: usize = 1;
+        var hi: usize = dfa.states.len;
+        states_ordered[0] = 0;
+        state_partitions[0] = 0;
+        for (1..dfa.states.len) |state| {
+            if (state_finals[state]) {
+                states_ordered[lo] = state;
+                lo += 1;
+                state_partitions[state] = 0;
+            } else {
+                hi -= 1;
+                states_ordered[hi] = state;
+                state_partitions[state] = 1;
+            }
+        }
+        try p.appendSlice(&.{ states_ordered[0..lo], states_ordered[lo..] });
+    }
+
+    var part_A: usize = 0;
+    while (part_A < p.items.len) : (part_A += 1) {
+        for (0..128) |ch| {
+            for (0..p.items.len) |part_Y| {
+                const part_0 = state_partitions[state_edges[p.items[part_Y][0]][ch]] == part_A;
+                var lo: usize = 1;
+                var hi = p.items[part_Y].len;
+                while (lo < hi) {
+                    const part_i = state_partitions[state_edges[p.items[part_Y][lo]][ch]] == part_A;
+                    if (part_0 != part_i) {
+                        hi -= 1;
+                        std.mem.swap(usize, &p.items[part_Y][lo], &p.items[part_Y][hi]);
+                    } else {
+                        lo += 1;
+                    }
+                }
+                if (hi != p.items[part_Y].len) {
+                    if (lo > p.items[part_Y].len / 2) {
+                        try p.append(p.items[part_Y][lo..]);
+                        p.items[part_Y] = p.items[part_Y][0..lo];
+                    } else {
+                        try p.append(p.items[part_Y][0..lo]);
+                        p.items[part_Y] = p.items[part_Y][lo..];
+                    }
+                    for (p.items[p.items.len - 1]) |index| {
+                        state_partitions[index] = p.items.len - 1;
+                    }
+                }
+            }
+        }
+    }
+
+    var new_dfa_states: std.MultiArrayList(State) = .{};
+    errdefer new_dfa_states.deinit(gpa);
+    try new_dfa_states.resize(gpa, p.items.len);
+
+    const new_slice = new_dfa_states.slice();
+    const new_state_finals = new_slice.items(.final);
+    const new_state_edges = new_slice.items(.edges);
+
+    for (p.items, 0..) |part, new_state| {
+        new_state_finals[new_state] = state_finals[part[0]];
+        for (0..128) |sym| {
+            new_state_edges[new_state][sym] = state_partitions[state_edges[part[0]][sym]];
+        }
+    }
+
+    return .{ .states = new_dfa_states };
+}
+
+fn findDumpState(dfa: Dfa) ?usize {
+    const slice = dfa.states.slice();
+    const state_finals = slice.items(.final);
+    const state_edges = slice.items(.edges);
+
+    for (state_edges, 0..dfa.states.len) |edges, state| {
+        const is_dump_state = !state_finals[state] and for (edges) |dest| {
+            if (state != dest) break false;
+        } else true;
+
+        if (is_dump_state) {
+            return state;
+        }
+    }
+    return null;
+}
+
+pub fn viz(dfa: Dfa, writer: anytype) !void {
+    const slice = dfa.states.slice();
+    const state_finals = slice.items(.final);
+    const state_edges = slice.items(.edges);
+
+    const dump_state = dfa.findDumpState();
+
+    try writer.print("digraph {{", .{});
+    try writer.print(" node [shape=circle]", .{});
+    for (0..dfa.states.len) |i| {
+        if (!state_finals[i] and i != dump_state) {
+            try writer.print(" {}\n", .{i});
+        }
+    }
+    try writer.print(" node [shape=rect]", .{});
+    for (0..dfa.states.len) |i| {
+        if (state_finals[i]) {
+            try writer.print(" {}\n", .{i});
+        }
+    }
+    for (state_edges, 0..) |edges, from| {
+        if (from == dump_state) {
+            continue;
+        }
+        for (edges, 0..) |to, sym| {
+            if (to == dump_state) {
+                continue;
+            }
+            if (sym == '\\' or sym == '\"' or !std.ascii.isAscii(@intCast(sym))) {
+                try writer.print(" {} -> {} [label=\"{}\"]", .{ from, to, sym });
+            } else {
+                try writer.print(" {} -> {} [label=\"{c}\"]", .{ from, to, @as(u8, @intCast(sym)) });
+            }
+        }
+    }
+    try writer.print(" }}", .{});
 }
