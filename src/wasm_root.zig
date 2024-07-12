@@ -46,7 +46,7 @@ fn run() !void {
     var min_dfa = try dfa.minimize(std.heap.wasm_allocator);
     defer min_dfa.deinit(std.heap.wasm_allocator);
 
-    try dfa.viz(output_digraph.writer());
+    try min_dfa.viz(output_digraph.writer());
 }
 
 var input_regex: []u8 = &.{};
