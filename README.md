@@ -73,6 +73,8 @@ support the full set of ASCII characters, NUL (0x00) to DEL (0x7F).
 
 Implemented Re -> AST -> NFA -> DFA -> minimized DFA.
 
+TODO: Canonicalize DFA state numbers, implement lookarounds.
+
 ### Flavors
 
 Currently supports a weird mixed version of different flavors. Eventually, to
