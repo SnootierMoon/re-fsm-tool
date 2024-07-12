@@ -336,11 +336,11 @@ pub fn parse(gpa: std.mem.Allocator, str: []const u8) !Ast {
         } else if (s.readCharIfEq(')')) {
             var old_frame = stack.popOrNull() orelse return error.Parse;
             try curr_frame.addTermToExpr(gpa, &nodes);
+            try s.readQuantifier(gpa, &nodes);
             try old_frame.addAtomToTerm(gpa, &nodes);
             if (curr_frame.look_around) |look_around| {
                 try nodes.append(gpa, .{ .look_around = look_around });
             }
-            try s.readQuantifier(gpa, &nodes);
             curr_frame = old_frame;
         } else {
             return error.Parse;

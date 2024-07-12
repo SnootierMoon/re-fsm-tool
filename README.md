@@ -71,7 +71,7 @@ Currently, this program is designed to support ASCII printable characters, the
 95 characters from ' ' (0x20) to '~' (0x7E), inclusive. Future versions may
 support the full set of ASCII characters, NUL (0x00) to DEL (0x7F).
 
-Implemented Re -> AST. TODO AST -> NFA, NFA -> DFA, DFA minimization.
+Implemented Re -> AST -> NFA -> DFA -> minimized DFA.
 
 ### Flavors
 

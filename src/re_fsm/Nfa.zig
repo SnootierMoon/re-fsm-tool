@@ -131,7 +131,7 @@ pub fn viz(nfa: Nfa, writer: anytype) !void {
     for (0..nfa.reject_count) |i| {
         try writer.print(" {}\n", .{i});
     }
-    try writer.print(" node [shape=rect]", .{});
+    try writer.print(" node [shape=doublecircle]", .{});
     for (0..nfa.accept_count) |i| {
         try writer.print(" {}\n", .{nfa.reject_count + i});
     }

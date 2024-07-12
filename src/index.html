@@ -7,16 +7,13 @@
     <link rel="stylesheet" href="styles.css">
     <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
-    <script src="https://d3js.org/d3.v4.js"></script>
-    <script src="https://dagrejs.github.io/project/graphlib-dot/v0.6.3/graphlib-dot.js"></script>
-    <script src="https://dagrejs.github.io/project/dagre-d3/latest/dagre-d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@viz-js/viz/lib/viz-standalone.js"></script>
+    <script src="https://unpkg.com/panzoom@9.4.0/dist/panzoom.min.js"></script>
 </head>
 <body>
     <input type="text" name="regex" placeholder="a?(cd){2,3}b+" autocomplete="off">
-    <svg width=100% height=100%>
-        <g>
-        <g/>
-    </svg>
+    <div id="output-region">
+    </div>
     <script src="app.js"></script>
 </body>
 </html>

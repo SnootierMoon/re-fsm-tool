@@ -8,7 +8,8 @@ body {
     display: flex;
     flex-direction: column;
 }
-svg {
+#output-region {
+    margin: 5px;
     flex: 1;
     overflow: hidden;
 }

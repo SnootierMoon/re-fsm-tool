@@ -159,10 +159,10 @@ pub fn minimize(dfa: Dfa, gpa: std.mem.Allocator) !Dfa {
     {
         var lo: usize = 1;
         var hi: usize = dfa.states.len;
-        states_ordered[0] = 0;
+        states_ordered[0] = 0; // if putting final states first, revert this!
         state_partitions[0] = 0;
         for (1..dfa.states.len) |state| {
-            if (state_finals[state]) {
+            if (!state_finals[state]) {
                 states_ordered[lo] = state;
                 lo += 1;
                 state_partitions[state] = 0;
@@ -256,25 +256,38 @@ pub fn viz(dfa: Dfa, writer: anytype) !void {
             try writer.print(" {}\n", .{i});
         }
     }
-    try writer.print(" node [shape=rect]", .{});
+    try writer.print(" node [shape=doublecircle]", .{});
     for (0..dfa.states.len) |i| {
         if (state_finals[i]) {
             try writer.print(" {}\n", .{i});
         }
     }
+
     for (state_edges, 0..) |edges, from| {
         if (from == dump_state) {
             continue;
         }
+
+        var labeled_edges: [128]struct{ to: usize, mask: u128 } = undefined;
+        var labeled_edge_count: usize = 0;
         for (edges, 0..) |to, sym| {
             if (to == dump_state) {
                 continue;
             }
-            if (sym == '\\' or sym == '\"' or !std.ascii.isAscii(@intCast(sym))) {
-                try writer.print(" {} -> {} [label=\"{}\"]", .{ from, to, sym });
-            } else {
-                try writer.print(" {} -> {} [label=\"{c}\"]", .{ from, to, @as(u8, @intCast(sym)) });
-            }
+            const index = for (labeled_edges[0..labeled_edge_count], 0..) |labeled_edge, index| {
+                if (labeled_edge.to == to) break index;
+            } else blk: {
+                defer labeled_edge_count += 1;
+                labeled_edges[labeled_edge_count].to = to;
+                labeled_edges[labeled_edge_count].mask = 0;
+                break :blk labeled_edge_count;
+            };
+            labeled_edges[index].mask |= @as(u128, 1) << @intCast(sym);
+        }
+        for (labeled_edges[0..labeled_edge_count]) |edge| {
+            try writer.print(" {} -> {} [label=\"", .{ from, edge.to });
+            try @import("../re_fsm.zig").printMask(writer, edge.mask);
+            try writer.print("\"]", .{});
         }
     }
     try writer.print(" }}", .{});

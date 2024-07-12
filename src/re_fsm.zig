@@ -24,9 +24,8 @@ fn printRange(writer: anytype, first: bool, start: u8, end: u8) !void {
 }
 
 pub fn printMask(writer: anytype, mask: u128) !void {
-    if (mask == 0) {
-        try writer.print("fail", .{});
-    } else if (mask == std.math.maxInt(u128)) {
+    std.debug.assert(mask != 0);
+    if (mask == std.math.maxInt(u128)) {
         try writer.print(".", .{});
     } else {
         var first = true;
