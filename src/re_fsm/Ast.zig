@@ -305,6 +305,8 @@ pub fn parse(gpa: std.mem.Allocator, str: []const u8) !Ast {
                 try nodes.append(gpa, .{ .mask = @as(u128, 1) << @intCast(ch) });
                 try s.readQuantifier(gpa, &nodes);
                 try curr_frame.addAtomToTerm(gpa, &nodes);
+            } else {
+                return error.Parse;
             }
         } else if (s.readCharIfEq('.')) {
             try nodes.append(gpa, .{ .mask = std.math.maxInt(u128) });

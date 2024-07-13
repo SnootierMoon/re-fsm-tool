@@ -148,6 +148,23 @@ pub fn minimize(dfa: Dfa, gpa: std.mem.Allocator) !Dfa {
     const state_finals = slice.items(.final);
     const state_edges = slice.items(.edges);
 
+    std.log.info("{any}", .{state_finals});
+
+    for (state_finals[1..]) |final| {
+        if (final != state_finals[0]) {
+            break;
+        }
+    } else {
+        var new_dfa_states: std.MultiArrayList(State) = .{};
+        errdefer new_dfa_states.deinit(gpa);
+        try new_dfa_states.append(gpa, .{
+            .final = state_finals[0],
+            .edges = .{0} ** 128,
+        });
+    
+        return .{ .states = new_dfa_states };
+    }
+
     var states_ordered = try gpa.alloc(usize, dfa.states.len);
     defer gpa.free(states_ordered);
 
@@ -162,7 +179,7 @@ pub fn minimize(dfa: Dfa, gpa: std.mem.Allocator) !Dfa {
         states_ordered[0] = 0; // if putting final states first, revert this!
         state_partitions[0] = 0;
         for (1..dfa.states.len) |state| {
-            if (!state_finals[state]) {
+            if (state_finals[state] == state_finals[0]) {
                 states_ordered[lo] = state;
                 lo += 1;
                 state_partitions[state] = 0;
@@ -175,6 +192,7 @@ pub fn minimize(dfa: Dfa, gpa: std.mem.Allocator) !Dfa {
         try p.appendSlice(&.{ states_ordered[0..lo], states_ordered[lo..] });
     }
 
+    std.log.info("{any}", .{p.items});
     var part_A: usize = 0;
     while (part_A < p.items.len) : (part_A += 1) {
         for (0..128) |ch| {
@@ -205,6 +223,7 @@ pub fn minimize(dfa: Dfa, gpa: std.mem.Allocator) !Dfa {
                 }
             }
         }
+        std.log.info("{any}", .{p.items});
     }
 
     var new_dfa_states: std.MultiArrayList(State) = .{};
@@ -225,34 +244,15 @@ pub fn minimize(dfa: Dfa, gpa: std.mem.Allocator) !Dfa {
     return .{ .states = new_dfa_states };
 }
 
-fn findDumpState(dfa: Dfa) ?usize {
-    const slice = dfa.states.slice();
-    const state_finals = slice.items(.final);
-    const state_edges = slice.items(.edges);
-
-    for (state_edges, 0..dfa.states.len) |edges, state| {
-        const is_dump_state = !state_finals[state] and for (edges) |dest| {
-            if (state != dest) break false;
-        } else true;
-
-        if (is_dump_state) {
-            return state;
-        }
-    }
-    return null;
-}
-
 pub fn viz(dfa: Dfa, writer: anytype) !void {
     const slice = dfa.states.slice();
     const state_finals = slice.items(.final);
     const state_edges = slice.items(.edges);
 
-    const dump_state = dfa.findDumpState();
-
     try writer.print("digraph {{", .{});
     try writer.print(" node [shape=circle]", .{});
     for (0..dfa.states.len) |i| {
-        if (!state_finals[i] and i != dump_state) {
+        if (!state_finals[i]) {
             try writer.print(" {}\n", .{i});
         }
     }
@@ -264,16 +264,9 @@ pub fn viz(dfa: Dfa, writer: anytype) !void {
     }
 
     for (state_edges, 0..) |edges, from| {
-        if (from == dump_state) {
-            continue;
-        }
-
         var labeled_edges: [128]struct{ to: usize, mask: u128 } = undefined;
         var labeled_edge_count: usize = 0;
         for (edges, 0..) |to, sym| {
-            if (to == dump_state) {
-                continue;
-            }
             const index = for (labeled_edges[0..labeled_edge_count], 0..) |labeled_edge, index| {
                 if (labeled_edge.to == to) break index;
             } else blk: {
