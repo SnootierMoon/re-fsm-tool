@@ -13,7 +13,7 @@ pub const Edge = struct {
     to: usize,
 };
 
-pub fn fromAst(gpa: std.mem.Allocator, ast: Ast) !Nfa {
+pub fn fromAst(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
     var edges = std.ArrayList(Edge).init(gpa);
     defer edges.deinit();
 
@@ -46,7 +46,7 @@ pub fn fromAst(gpa: std.mem.Allocator, ast: Ast) !Nfa {
                 reject_count[index] = reject_count[lhs_index] + accept_count[lhs_index] + reject_count[index - 1];
                 accept_count[index] = accept_count[index - 1];
             },
-            .look_around => return error.Unimplemented,
+            .look_around => @panic("unimplemented"),
             .repeat => {
                 reject_count[index] = reject_count[index - 1];
                 accept_count[index] = accept_count[index - 1];
@@ -74,7 +74,7 @@ pub fn fromAst(gpa: std.mem.Allocator, ast: Ast) !Nfa {
                 reject_index[index - 1] = reject_index[index] + reject_count[lhs_index] + accept_count[lhs_index];
                 accept_index[index - 1] = accept_index[index];
             },
-            .look_around => return error.Unimplemented,
+            .look_around => @panic("unimplemented"),
             .repeat => {
                 reject_index[index - 1] = reject_index[index];
                 accept_index[index - 1] = accept_index[index];
@@ -105,7 +105,7 @@ pub fn fromAst(gpa: std.mem.Allocator, ast: Ast) !Nfa {
                     try edges.append(.{ .from = accept_index[lhs_index] + i, .sym = null, .to = reject_index[index - 1] });
                 }
             },
-            .look_around => return error.Unimplemented,
+            .look_around => @panic("unimplemented"),
             .repeat => {
                 for (0..accept_count[index - 1]) |i| {
                     try edges.append(.{ .from = accept_index[index - 1] + i, .sym = null, .to = reject_index[index - 1] });

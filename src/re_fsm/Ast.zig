@@ -61,7 +61,7 @@ fn nodeStartIdx(nodes: *std.MultiArrayList(Node)) usize {
     }
 }
 
-fn copyNode(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), start: usize, end: usize) !void {
+fn copyNode(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), start: usize, end: usize) error{Parse,OutOfMemory}!void {
     try nodes.ensureUnusedCapacity(gpa, end - start);
     const slice = nodes.slice();
     const tags = slice.items(.tags);
@@ -80,7 +80,7 @@ fn copyNode(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), start: usi
     }
 }
 
-fn genRepeat(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), low: usize, high: ?usize) !void {
+fn genRepeat(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), low: usize, high: ?usize) error{Parse,OutOfMemory}!void {
     const inner_start = nodeStartIdx(nodes);
     const inner_end = nodes.len;
     if (high) |high_| {
@@ -178,11 +178,11 @@ const Stream = struct {
         }
     }
 
-    fn readUnsignedInt(s: *Stream, comptime Int: type) !?Int {
+    fn readUnsignedInt(s: *Stream, comptime Int: type) error{Parse,OutOfMemory}!?Int {
         if (s.readCharIf(std.ascii.isDigit)) |ch0| {
             var int: Int = ch0 - '0';
             while (s.readCharIf(std.ascii.isDigit)) |ch| {
-                int = try std.math.add(Int, try std.math.mul(Int, int, 10), ch - '0');
+                int = std.math.add(Int, std.math.mul(Int, int, 10) catch return error.Parse, ch - '0') catch return error.Parse;
             }
             return int;
         } else {
@@ -190,7 +190,7 @@ const Stream = struct {
         }
     }
 
-    fn readCharClass(s: *Stream) !u128 {
+    fn readCharClass(s: *Stream) error{Parse,OutOfMemory}!u128 {
         var negated = false;
         var last: ?u8 = undefined;
         var class_mask: u128 = 0;
@@ -225,7 +225,7 @@ const Stream = struct {
         return if (negated) ~class_mask else class_mask;
     }
 
-    fn readQuantifier(s: *Stream, gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node)) !void {
+    fn readQuantifier(s: *Stream, gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node)) error{Parse,OutOfMemory}!void {
         if (s.readCharIfEq('*')) {
             try genRepeat(gpa, nodes, 0, null);
         } else if (s.readCharIfEq('+')) {
@@ -254,7 +254,7 @@ const Stream = struct {
     }
 };
 
-pub fn parse(gpa: std.mem.Allocator, str: []const u8) !Ast {
+pub fn parse(gpa: std.mem.Allocator, str: []const u8) error{Parse,OutOfMemory}!Ast {
     const StackFrame = struct {
         term: ?usize = null,
         expr: ?usize = null,
@@ -264,7 +264,7 @@ pub fn parse(gpa: std.mem.Allocator, str: []const u8) !Ast {
             frame: *@This(),
             gpa_: std.mem.Allocator,
             nodes: *std.MultiArrayList(Node),
-        ) !void {
+        ) error{OutOfMemory}!void {
             if (frame.term) |atom| {
                 try nodes.append(gpa_, .{ .concat = atom });
             }
@@ -275,7 +275,7 @@ pub fn parse(gpa: std.mem.Allocator, str: []const u8) !Ast {
             frame: *@This(),
             gpa_: std.mem.Allocator,
             nodes: *std.MultiArrayList(Node),
-        ) !void {
+        ) error{OutOfMemory}!void {
             if (frame.term == null) {
                 try nodes.append(gpa_, .{ .epsilon = {} });
             }

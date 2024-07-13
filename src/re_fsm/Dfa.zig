@@ -25,7 +25,7 @@ const set = struct {
         return .{ lo < items.len and items[lo] == key, lo };
     }
 
-    fn insert(gpa: std.mem.Allocator, items: *std.ArrayListUnmanaged(usize), key: usize) !bool {
+    fn insert(gpa: std.mem.Allocator, items: *std.ArrayListUnmanaged(usize), key: usize) error{OutOfMemory}!bool {
         const found, const index = find(items.items, key);
         if (!found) {
             try items.insert(gpa, index, key);
@@ -60,7 +60,7 @@ const NfaEdges = struct {
 
     const NfaEdgeMap = std.AutoHashMapUnmanaged(struct { usize, ?u7 }, std.ArrayListUnmanaged(usize));
 
-    fn init(gpa: std.mem.Allocator, edges: []Nfa.Edge) !NfaEdges {
+    fn init(gpa: std.mem.Allocator, edges: []Nfa.Edge) error{OutOfMemory}!NfaEdges {
         var map = NfaEdgeMap{};
         for (edges) |edge| {
             const entry = try map.getOrPutValue(gpa, .{ edge.from, edge.sym }, .{});
@@ -70,7 +70,7 @@ const NfaEdges = struct {
         return .{ .map = map, .pq = EClosurePriorityQueue.init(gpa, {}) };
     }
 
-    fn eClosure(nfa_edges: *NfaEdges, gpa: std.mem.Allocator) !void {
+    fn eClosure(nfa_edges: *NfaEdges, gpa: std.mem.Allocator) error{OutOfMemory}!void {
         // https://github.com/ziglang/zig/pull/20282
         nfa_edges.pq.items.len = 0;
         try nfa_edges.pq.addSlice(nfa_edges.state_set.items);
@@ -85,7 +85,7 @@ const NfaEdges = struct {
         }
     }
 
-    fn move(nfa_edges: *NfaEdges, gpa: std.mem.Allocator, from: []const usize, sym: u7) !void {
+    fn move(nfa_edges: *NfaEdges, gpa: std.mem.Allocator, from: []const usize, sym: u7) error{OutOfMemory}!void {
         nfa_edges.state_set.clearRetainingCapacity();
         for (from) |from_state| {
             if (nfa_edges.map.get(.{ from_state, sym })) |to_states| {
@@ -97,7 +97,7 @@ const NfaEdges = struct {
     }
 };
 
-pub fn fromNfa(gpa: std.mem.Allocator, nfa: Nfa) !Dfa {
+pub fn fromNfa(gpa: std.mem.Allocator, nfa: Nfa) error{OutOfMemory}!Dfa {
     var arena_obj = std.heap.ArenaAllocator.init(gpa);
     defer arena_obj.deinit();
     const arena = arena_obj.allocator();
@@ -143,7 +143,7 @@ pub fn deinit(dfa: *Dfa, gpa: std.mem.Allocator) void {
     dfa.states.deinit(gpa);
 }
 
-pub fn minimize(dfa: Dfa, gpa: std.mem.Allocator) !Dfa {
+pub fn minimize(dfa: Dfa, gpa: std.mem.Allocator) error{OutOfMemory}!Dfa {
     const slice = dfa.states.slice();
     const state_finals = slice.items(.final);
     const state_edges = slice.items(.edges);
@@ -249,17 +249,16 @@ pub fn viz(dfa: Dfa, writer: anytype) !void {
     const state_finals = slice.items(.final);
     const state_edges = slice.items(.edges);
 
-    try writer.print("digraph {{", .{});
-    try writer.print(" node [shape=circle]", .{});
+    try writer.print("digraph {{\n  node [shape=circle]\n ", .{});
     for (0..dfa.states.len) |i| {
         if (!state_finals[i]) {
-            try writer.print(" {}\n", .{i});
+            try writer.print(" {}", .{i});
         }
     }
-    try writer.print(" node [shape=doublecircle]", .{});
+    try writer.print("\n  node [shape=doublecircle]\n ", .{});
     for (0..dfa.states.len) |i| {
         if (state_finals[i]) {
-            try writer.print(" {}\n", .{i});
+            try writer.print(" {}", .{i});
         }
     }
 
@@ -278,10 +277,10 @@ pub fn viz(dfa: Dfa, writer: anytype) !void {
             labeled_edges[index].mask |= @as(u128, 1) << @intCast(sym);
         }
         for (labeled_edges[0..labeled_edge_count]) |edge| {
-            try writer.print(" {} -> {} [label=\"", .{ from, edge.to });
+            try writer.print("\n  {} -> {} [label=\"", .{ from, edge.to });
             try @import("../re_fsm.zig").printMask(writer, edge.mask);
             try writer.print("\"]", .{});
         }
     }
-    try writer.print(" }}", .{});
+    try writer.print("\n}}", .{});
 }

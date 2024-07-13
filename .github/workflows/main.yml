@@ -1,6 +1,6 @@
-on:
-  push:
-    branches: [main]
+name: CI/CD
+
+on: [push, pull_request]
 
 permissions:
   contents: read
@@ -16,15 +16,20 @@ jobs:
     runs-on: ubuntu-latest
     name: Build and Install
     steps:
-      - uses: actions/checkout@v3
-      - uses: mlugg/setup-zig@v1
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v1
         with:
           version: master
-      - run: zig build install
-      - uses: actions/upload-artifact@v4
+      - name: Build website
+        run: zig build install-www
+      - name: Upload site files
+        uses: actions/upload-artifact@v4
         with:
-          name: web
-          path: zig-out
+          name: www
+          path: zig-out/www
+          retention-days: 1
   deploy:
     needs: install
     environment:
@@ -32,13 +37,17 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download site files
+        uses: actions/download-artifact@v4
         with:
-          name: web
-          path: pub
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+          name: www
+          path: public
+      - name: Configure GitHub pages
+        uses: actions/configure-pages@v5
+      - name: Upload GitHub pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          path: pub
-      - id: deployment
+          path: public
+      - name: Deploy to GitHub pages
+        id: deployment
         uses: actions/deploy-pages@v4

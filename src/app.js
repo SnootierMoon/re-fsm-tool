@@ -30,7 +30,7 @@ window.onload = async function() {
     }
 
 
-    const wasm_response = await fetch("bin/ReFsm.wasm");
+    const wasm_response = await fetch("ReFsm.wasm");
     const wasm_bytes = await wasm_response.arrayBuffer();
     wasm = await WebAssembly.instantiate(wasm_bytes, wasm_imports);
 

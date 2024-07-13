@@ -1,7 +1,4 @@
 const std = @import("std");
-const Ast = @import("re_fsm/Ast.zig");
-const Nfa = @import("re_fsm/Nfa.zig");
-const Dfa = @import("re_fsm/Dfa.zig");
 
 pub const std_options: std.Options = .{
     .logFn = logImpl,
@@ -28,26 +25,6 @@ fn logImpl(
     console_print(lvl, msg.ptr, msg.len);
 }
 
-fn run() !void {
-    var ast = try Ast.parse(std.heap.wasm_allocator, input_regex);
-    defer ast.deinit(std.heap.wasm_allocator);
-
-    output_digraph.clearRetainingCapacity();
-    // try ast.viz(output_digraph.writer());
-
-    var nfa = try Nfa.fromAst(std.heap.wasm_allocator, ast);
-    defer nfa.deinit(std.heap.wasm_allocator);
-
-    // try nfa.viz(output_digraph.writer());
-
-    var dfa = try Dfa.fromNfa(std.heap.wasm_allocator, nfa);
-    defer dfa.deinit(std.heap.wasm_allocator);
-
-    var min_dfa = try dfa.minimize(std.heap.wasm_allocator);
-    defer min_dfa.deinit(std.heap.wasm_allocator);
-
-    try min_dfa.viz(output_digraph.writer());
-}
 
 var input_regex: []u8 = &.{};
 var output_digraph = std.ArrayList(u8).init(std.heap.wasm_allocator);
@@ -61,7 +38,8 @@ export fn alloc_input_regex(len: usize) ?[*]u8 {
 }
 
 export fn generate_digraph() u32 {
-    run() catch |e| {
+    output_digraph.clearRetainingCapacity();
+    @import("re_fsm.zig").run(output_digraph.writer(), std.heap.wasm_allocator, input_regex) catch |e| {
         std.log.warn("{s}", .{@errorName(e)});
         return 0;
     };
