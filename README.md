@@ -73,7 +73,7 @@ support the full set of ASCII characters, NUL (0x00) to DEL (0x7F).
 
 Implemented Re -> AST -> NFA -> DFA -> minimized DFA.
 
-TODO: Canonicalize DFA state numbers, implement lookarounds.
+TODO: implement lookarounds, canonicalize DFA state numbers.
 
 ### Flavors
 
