@@ -3,16 +3,16 @@ const std = @import("std");
 const Ast = @import("Ast.zig");
 const Nfa = @This();
 
-groups: std.ArrayListUnmanaged(DigraphGroup),
+groups: std.ArrayListUnmanaged(DigraphGroup) = .{},
 
 pub const DigraphGroup = struct {
     total_states: usize,
-    digraphs: std.ArrayListUnmanaged(Digraph),
-    edges: std.ArrayListUnmanaged(Edge),
-    gate_edges: std.ArrayListUnmanaged(GateEdge), 
-    deferred_gate_edges: std.ArrayListUnmanaged(GateEdge),
+    digraphs: std.ArrayListUnmanaged(Digraph) = .{},
+    edges: std.ArrayListUnmanaged(Edge) = .{},
+    gate_edges: std.ArrayListUnmanaged(GateEdge) = .{}, 
+    deferred_gate_edges: std.ArrayListUnmanaged(GateEdge) = .{},
 
-    fn deinit(group: *DigraphGroup, gpa: std.mem.Allocator) void {
+    pub fn deinit(group: *DigraphGroup, gpa: std.mem.Allocator) void {
         group.digraphs.deinit(gpa);
         group.edges.deinit(gpa);
         group.gate_edges.deinit(gpa);
@@ -29,7 +29,7 @@ pub const Digraph = struct {
 pub const Edge = struct {
     from: usize,
     to: usize,
-    sym: ?u7,
+    sym: ?u7 = null,
 };
 
 pub const GateEdge = struct {
@@ -40,7 +40,7 @@ pub const GateEdge = struct {
 };
 
 pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
-    var nfa: Nfa = .{ .groups = .{} };
+    var nfa: Nfa = .{};
     errdefer nfa.deinit(gpa);
 
     const NodeNfaInfo = struct {
@@ -97,11 +97,7 @@ pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
     }
 
     try nfa.groups.append(gpa, .{
-        .total_states = node_reject_count[ast.nodes.len - 1] + node_accept_count[ast.nodes.len - 1],
-        .digraphs = .{},
-        .edges = .{},
-        .gate_edges = .{},
-        .deferred_gate_edges = .{},
+        .total_states = node_reject_count[ast.nodes.len - 1] + node_accept_count[ast.nodes.len - 1]
     });
     try nfa.groups.items[0].digraphs.append(gpa, .{
         .state_index = 0,
@@ -146,13 +142,7 @@ pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
                 switch (ast_data[node].look_around.dir) {
                     .ahead => {
                         node_digraph_group[inner_node] = nfa.groups.items.len;
-                        try nfa.groups.append(gpa, .{
-                            .total_states = 0,
-                            .digraphs = .{},
-                            .edges = .{},
-                            .gate_edges = .{},
-                            .deferred_gate_edges = .{},
-                        });
+                        try nfa.groups.append(gpa, .{ .total_states = undefined });
                     },
                     .behind => {
                         node_digraph_group[inner_node] = node_digraph_group[node];
@@ -161,14 +151,15 @@ pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
 
                 const inner_group = &nfa.groups.items[node_digraph_group[inner_node]];
                 node_digraph[inner_node] = inner_group.digraphs.items.len;
+                const loop_state = @intFromBool(ast_data[node].look_around.dir == .behind);
                 try inner_group.digraphs.append(gpa, .{
                     .state_index = inner_group.total_states,
-                    .reject_count = 1 + node_reject_count[inner_node],
+                    .reject_count = loop_state + node_reject_count[inner_node],
                     .accept_count = node_accept_count[inner_node],
                 });
-                node_reject_index[inner_node] = 1 + inner_group.total_states;
-                node_accept_index[inner_node] = 1 + inner_group.total_states + node_reject_count[inner_node];
-                inner_group.total_states += 1 + node_reject_count[inner_node] + node_accept_count[inner_node];
+                node_reject_index[inner_node] = loop_state + inner_group.total_states;
+                node_accept_index[inner_node] = loop_state + inner_group.total_states + node_reject_count[inner_node];
+                inner_group.total_states += loop_state + node_reject_count[inner_node] + node_accept_count[inner_node];
             },
             .repeat => {
                 const inner_node = node - 1;
@@ -184,7 +175,7 @@ pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
         switch (tag) {
             .epsilon => {
                 const group = &nfa.groups.items[node_digraph_group[node]];
-                try group.edges.append(gpa, .{ .from = node_reject_index[node], .to = node_accept_index[node], .sym = null });
+                try group.edges.append(gpa, .{ .from = node_reject_index[node], .to = node_accept_index[node] });
             },
             .mask => {
                 const group = &nfa.groups.items[node_digraph_group[node]];
@@ -198,15 +189,15 @@ pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
                 const group = &nfa.groups.items[node_digraph_group[node]];
                 const lhs_node = ast_data[node].either;
                 const rhs_node = node - 1;
-                try group.edges.append(gpa, .{ .from = node_reject_index[node], .to = node_reject_index[lhs_node], .sym = null });
-                try group.edges.append(gpa, .{ .from = node_reject_index[node], .to = node_reject_index[rhs_node], .sym = null });
+                try group.edges.append(gpa, .{ .from = node_reject_index[node], .to = node_reject_index[lhs_node] });
+                try group.edges.append(gpa, .{ .from = node_reject_index[node], .to = node_reject_index[rhs_node] });
             },
             .concat => {
                 const group = &nfa.groups.items[node_digraph_group[node]];
                 const lhs_node = ast_data[node].concat;
                 const rhs_node = node - 1;
                 for (0..node_accept_count[lhs_node]) |lhs_node_accept| {
-                    try group.edges.append(gpa, .{ .from = node_accept_index[lhs_node] + lhs_node_accept, .to = node_reject_index[rhs_node], .sym = null });
+                    try group.edges.append(gpa, .{ .from = node_accept_index[lhs_node] + lhs_node_accept, .to = node_reject_index[rhs_node] });
                 }
             },
             .look_around => {
@@ -223,11 +214,11 @@ pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
                     },
                     .behind => {
                         const state_index = group.digraphs.items[node_digraph[inner_node]].state_index;
-                        try group.edges.append(gpa, .{ .from = 0, .to = state_index, .sym = null });
+                        try group.edges.append(gpa, .{ .from = 0, .to = state_index });
                         for (0..128) |sym| {
                             try group.edges.append(gpa, .{ .from = state_index, .to = state_index, .sym = @intCast(sym) });
                         }
-                        try group.edges.append(gpa, .{ .from = state_index, .to = state_index + 1, .sym = null });
+                        try group.edges.append(gpa, .{ .from = state_index, .to = state_index + 1 });
                         try group.gate_edges.append(gpa, .{
                             .from = node_reject_index[node],
                             .to = node_accept_index[node],
@@ -243,8 +234,7 @@ pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
                 for (0..node_accept_count[inner_node]) |inner_node_accept| {
                     try group.edges.append(gpa, .{
                         .from = node_accept_index[inner_node] + inner_node_accept,
-                        .to = node_reject_index[inner_node_accept],
-                        .sym = null
+                        .to = node_reject_index[inner_node_accept]
                     });
                 }
             },
