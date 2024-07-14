@@ -58,9 +58,7 @@ pub fn run(writer: anytype, gpa: std.mem.Allocator, input_regex: []const u8) !vo
     var nfa = try Nfa.init(gpa, ast);
     defer nfa.deinit(gpa);
 
-    // try nfa.dbgPrint(writer);
-
-    var rev_group: Nfa.DigraphGroup = .{ 
+    var rev_group: Nfa.DigraphGroup = .{
         .total_states = 0,
         .edges = .{},
     };
@@ -71,12 +69,12 @@ pub fn run(writer: anytype, gpa: std.mem.Allocator, input_regex: []const u8) !vo
         var dfa, const gate_edges = try Dfa.init(gpa, group);
         defer dfa.deinit(gpa);
         defer gpa.free(gate_edges);
-        
+
         const slice = dfa.states.slice();
         const state_final = slice.items(.final);
         const state_edge_mask = slice.items(.edge_mask);
         const state_edges = slice.items(.edges);
-        
+
         for (0..dfa.states.len) |from_state| {
             if (state_final[from_state]) {
                 try rev_group.edges.append(gpa, .{ .from = rev_group.total_states, .to = rev_group.total_states + from_state });
@@ -88,7 +86,12 @@ pub fn run(writer: anytype, gpa: std.mem.Allocator, input_regex: []const u8) !vo
         }
         try rev_group.edges.append(gpa, .{ .from = rev_group.total_states + 1, .to = rev_group.total_states + dfa.states.len });
         for (gate_edges) |gate_edge| {
-            try rev_group.gate_edges.append(gpa, .{ .from = rev_group.total_states + gate_edge.to, .to = rev_group.total_states + gate_edge.from, .digraph = gate_edge.digraph, .sign = gate_edge.sign, });
+            try rev_group.gate_edges.append(gpa, .{
+                .from = rev_group.total_states + gate_edge.to,
+                .to = rev_group.total_states + gate_edge.from,
+                .digraph = gate_edge.digraph,
+                .sign = gate_edge.sign,
+            });
         }
         if (group_index != 0) {
             try rev_group.edges.append(gpa, .{ .from = 0, .to = rev_group.total_states });
@@ -98,10 +101,7 @@ pub fn run(writer: anytype, gpa: std.mem.Allocator, input_regex: []const u8) !vo
         }
         rev_group.digraphs.items[group_index] = .{ .state_index = rev_group.total_states, .reject_count = dfa.states.len, .accept_count = 1 };
         rev_group.total_states += dfa.states.len + 1;
-        // try dfa.viz(writer);
     }
-
-    // try (Nfa{ .groups = .{ .items = (&rev_group)[0..1], .capacity = 1 } }).dbgPrint(writer);
 
     var rev_dfa, _ = try Dfa.init(gpa, rev_group);
     defer rev_dfa.deinit(gpa);
@@ -125,8 +125,6 @@ pub fn run(writer: anytype, gpa: std.mem.Allocator, input_regex: []const u8) !vo
             try group.edges.append(gpa, .{ .from = to_state, .to = from_state, .sym = @intCast(sym) });
         }
     }
-
-    std.log.info("{}", .{group});
 
     var dfa, _ = try Dfa.init(gpa, group);
     defer dfa.deinit(gpa);

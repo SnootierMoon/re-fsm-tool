@@ -9,7 +9,7 @@ pub const DigraphGroup = struct {
     total_states: usize,
     digraphs: std.ArrayListUnmanaged(Digraph) = .{},
     edges: std.ArrayListUnmanaged(Edge) = .{},
-    gate_edges: std.ArrayListUnmanaged(GateEdge) = .{}, 
+    gate_edges: std.ArrayListUnmanaged(GateEdge) = .{},
     deferred_gate_edges: std.ArrayListUnmanaged(GateEdge) = .{},
 
     pub fn deinit(group: *DigraphGroup, gpa: std.mem.Allocator) void {
@@ -66,6 +66,8 @@ pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
     const ast_tags = ast_slice.items(.tags);
     const ast_data = ast_slice.items(.data);
 
+    std.log.info("{any}", .{ast_tags});
+
     for (ast_tags, 0..) |tag, node| {
         switch (tag) {
             .epsilon, .mask => {
@@ -96,9 +98,7 @@ pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
         }
     }
 
-    try nfa.groups.append(gpa, .{
-        .total_states = node_reject_count[ast.nodes.len - 1] + node_accept_count[ast.nodes.len - 1]
-    });
+    try nfa.groups.append(gpa, .{ .total_states = node_reject_count[ast.nodes.len - 1] + node_accept_count[ast.nodes.len - 1] });
     try nfa.groups.items[0].digraphs.append(gpa, .{
         .state_index = 0,
         .reject_count = node_reject_count[ast.nodes.len - 1],
@@ -232,10 +232,7 @@ pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
                 const group = &nfa.groups.items[node_digraph_group[node]];
                 const inner_node = node - 1;
                 for (0..node_accept_count[inner_node]) |inner_node_accept| {
-                    try group.edges.append(gpa, .{
-                        .from = node_accept_index[inner_node] + inner_node_accept,
-                        .to = node_reject_index[inner_node_accept]
-                    });
+                    try group.edges.append(gpa, .{ .from = node_accept_index[inner_node] + inner_node_accept, .to = node_reject_index[inner_node] });
                 }
             },
         }

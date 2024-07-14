@@ -81,7 +81,11 @@ const NfaEdges = struct {
             try entry.value_ptr.gates.append(arena, gate_edge_index);
         }
 
-        return .{ .sym_map = sym_map, .eps_map = eps_map, .pq = EpsClosurePriorityQueue.init(arena, {}), };
+        return .{
+            .sym_map = sym_map,
+            .eps_map = eps_map,
+            .pq = EpsClosurePriorityQueue.init(arena, {}),
+        };
     }
 
     fn eClosure(nfa_edges: *NfaEdges, arena: std.mem.Allocator, group: Nfa.DigraphGroup) error{OutOfMemory}!void {
@@ -162,7 +166,7 @@ pub fn init(gpa: std.mem.Allocator, group: Nfa.DigraphGroup) error{OutOfMemory}!
                 has_dump_state = true;
             } else {
                 try nfa_edges.eClosure(arena, group);
-    
+
                 const gop = try nfa_to_dfa.getOrPut(arena, nfa_edges.state_set.items);
                 if (!gop.found_existing) {
                     gop.key_ptr.* = try nfa_edges.state_set.toOwnedSlice(arena);
@@ -197,7 +201,7 @@ pub fn init(gpa: std.mem.Allocator, group: Nfa.DigraphGroup) error{OutOfMemory}!
         final[i] = final_state < state_sets[i].len and state_sets[i][final_state] < main_digraph.state_index + main_digraph.reject_count + main_digraph.accept_count;
     }
 
-    return .{ .{ .has_dump_state = has_dump_state,  .states = dfa_states }, try deferred_gates.toOwnedSlice(gpa) };
+    return .{ .{ .has_dump_state = has_dump_state, .states = dfa_states }, try deferred_gates.toOwnedSlice(gpa) };
 }
 
 pub fn edgeTo(edge_mask: u128, edges: []usize, ch: u7) ?usize {
@@ -210,9 +214,9 @@ pub fn edgeTo(edge_mask: u128, edges: []usize, ch: u7) ?usize {
 }
 
 pub fn deinit(dfa: *Dfa, gpa: std.mem.Allocator) void {
-        for (dfa.states.items(.edges)) |*edges| {
-            edges.deinit(gpa);
-        }
+    for (dfa.states.items(.edges)) |*edges| {
+        edges.deinit(gpa);
+    }
     dfa.states.deinit(gpa);
 }
 
@@ -236,7 +240,7 @@ pub fn viz(dfa: Dfa, writer: anytype) !void {
     }
 
     for (state_edges, 0..) |edges, from| {
-        var labeled_edges: [128]struct{ to: usize, mask: u128 } = undefined;
+        var labeled_edges: [128]struct { to: usize, mask: u128 } = undefined;
         var labeled_edge_count: usize = 0;
 
         var edges_it = edges.items;

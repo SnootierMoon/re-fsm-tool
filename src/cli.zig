@@ -1,14 +1,8 @@
 const std = @import("std");
 
-pub const std_options: std.Options = .{
-    .fmt_max_depth = 10,
-};
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    std.log.info("{any}", .{std.options.fmt_max_depth});
-    std.log.info("{any}", .{@import("root").std_options.fmt_max_depth});
 
     const stdin = std.io.getStdIn();
     const stdout = std.io.getStdOut();
