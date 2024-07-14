@@ -60,7 +60,8 @@ pub fn run(writer: anytype, gpa: std.mem.Allocator, input_regex: []const u8) !vo
     var nfa = try Nfa.init(gpa, ast);
     defer nfa.deinit(gpa);
 
-    // var min_dfa = try dfa.minimize(gpa);
-    // defer min_dfa.deinit(gpa);
+    var dfa, _ = try Dfa.init(gpa, nfa.groups.items[0]);
+    defer dfa.deinit(gpa);
 
+    try dfa.viz(writer);
 }

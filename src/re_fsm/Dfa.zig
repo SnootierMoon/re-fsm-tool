@@ -153,12 +153,12 @@ pub fn init(gpa: std.mem.Allocator, group: Nfa.DigraphGroup) error{OutOfMemory}!
 
             from_edges[sym] = gop.index;
         }
-        for (group.deferred_gate_edges) |gate_edge| {
+        for (group.deferred_gate_edges.items) |gate_edge| {
             const from_state_set = nfa_to_dfa.entries.items(.key)[state];
             const found, _ = set.find(from_state_set, gate_edge.from);
             if (found) {
-                try nfa_edges.state_set.clearRetainingCapacity();
-                try nfa_edges.appendSlice(from_state_set);
+                nfa_edges.state_set.clearRetainingCapacity();
+                try nfa_edges.state_set.appendSlice(gpa, from_state_set);
                 if (try set.insert(arena, &nfa_edges.state_set, gate_edge.to)) {
                     try nfa_edges.eClosure(arena, group);
                     const gop = try nfa_to_dfa.getOrPut(arena, nfa_edges.state_set.items);
