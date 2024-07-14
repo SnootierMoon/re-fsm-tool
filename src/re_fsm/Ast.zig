@@ -17,21 +17,8 @@ pub const LookAround = struct {
     dir: Direction,
     sign: Sign,
 
-    const Direction = enum { ahead, behind };
-    const Sign = enum { pos, neg };
-
-    fn print(look_around: LookAround) []const u8 {
-        if (look_around.dir == .ahead and look_around.sign == .pos) {
-            return "positive lookahead";
-        } else if (look_around.dir == .ahead and look_around.sign == .neg) {
-            return "negative lookahead";
-        } else if (look_around.dir == .behind and look_around.sign == .pos) {
-            return "positive lookbehind";
-        } else if (look_around.dir == .behind and look_around.sign == .neg) {
-            return "negative lookbehind";
-        }
-        unreachable;
-    }
+    pub const Direction = enum { ahead, behind };
+    pub const Sign = enum { pos, neg };
 };
 
 fn isSpecial(ch: u8) bool {
@@ -45,7 +32,7 @@ fn isLiteral(ch: u8) bool {
     return std.ascii.isAscii(ch) and !isSpecial(ch);
 }
 
-fn nodeStartIdx(nodes: *std.MultiArrayList(Node)) usize {
+fn lastNodeStartIdx(nodes: std.MultiArrayList(Node)) usize {
     const slice = nodes.slice();
     const tags = slice.items(.tags);
     const data = slice.items(.data);
@@ -61,7 +48,7 @@ fn nodeStartIdx(nodes: *std.MultiArrayList(Node)) usize {
     }
 }
 
-fn copyNode(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), start: usize, end: usize) error{Parse,OutOfMemory}!void {
+fn copyNode(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), start: usize, end: usize) error{ Parse, OutOfMemory }!void {
     try nodes.ensureUnusedCapacity(gpa, end - start);
     const slice = nodes.slice();
     const tags = slice.items(.tags);
@@ -80,20 +67,20 @@ fn copyNode(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), start: usi
     }
 }
 
-fn genRepeat(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), low: usize, high: ?usize) error{Parse,OutOfMemory}!void {
-    const inner_start = nodeStartIdx(nodes);
-    const inner_end = nodes.len;
+fn genRepeat(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), low: usize, high: ?usize) error{ Parse, OutOfMemory }!void {
+    const start = lastNodeStartIdx(nodes.*);
+    const end = nodes.len;
     if (high) |high_| {
         std.debug.assert(low <= high_);
         if (high_ == 0) {
-            nodes.len = inner_start;
+            nodes.len = start;
             try nodes.append(gpa, .{ .epsilon = {} });
         } else if (low == 0) {
             for (1..high_) |_| {
                 try nodes.append(gpa, .{ .epsilon = {} });
                 try nodes.append(gpa, .{ .either = nodes.len - 2 });
                 const tmp_index = nodes.len - 1;
-                try copyNode(gpa, nodes, inner_start, inner_end);
+                try copyNode(gpa, nodes, start, end);
                 try nodes.append(gpa, .{ .concat = tmp_index });
             }
             try nodes.append(gpa, .{ .epsilon = {} });
@@ -103,12 +90,12 @@ fn genRepeat(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), low: usiz
                 try nodes.append(gpa, .{ .epsilon = {} });
                 try nodes.append(gpa, .{ .either = nodes.len - 2 });
                 const tmp_index = nodes.len - 1;
-                try copyNode(gpa, nodes, inner_start, inner_end);
+                try copyNode(gpa, nodes, start, end);
                 try nodes.append(gpa, .{ .concat = tmp_index });
             }
             for (1..low) |_| {
                 const tmp_index = nodes.len - 1;
-                try copyNode(gpa, nodes, inner_start, inner_end);
+                try copyNode(gpa, nodes, start, end);
                 try nodes.append(gpa, .{ .concat = tmp_index });
             }
         }
@@ -120,7 +107,7 @@ fn genRepeat(gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node), low: usiz
         try nodes.append(gpa, .{ .repeat = {} });
         for (1..low) |_| {
             const tmp_index = nodes.len - 1;
-            try copyNode(gpa, nodes, inner_start, inner_end);
+            try copyNode(gpa, nodes, start, end);
             try nodes.append(gpa, .{ .concat = tmp_index });
         }
     }
@@ -144,8 +131,8 @@ const Stream = struct {
 
     fn readChar(s: *Stream) ?u8 {
         if (s.hasRemaining()) {
-            defer s.loc += 1;
-            return s.str[s.loc];
+            s.loc += 1;
+            return s.str[s.loc - 1];
         } else {
             return null;
         }
@@ -153,8 +140,8 @@ const Stream = struct {
 
     fn readCharIf(s: *Stream, predicate: fn (u8) bool) ?u8 {
         if (s.hasRemaining() and predicate(s.str[s.loc])) {
-            defer s.loc += 1;
-            return s.str[s.loc];
+            s.loc += 1;
+            return s.str[s.loc - 1];
         } else {
             return null;
         }
@@ -162,7 +149,7 @@ const Stream = struct {
 
     fn readCharIfEq(s: *Stream, ch: u8) bool {
         if (s.hasRemaining() and s.str[s.loc] == ch) {
-            defer s.loc += 1;
+            s.loc += 1;
             return true;
         } else {
             return false;
@@ -171,14 +158,14 @@ const Stream = struct {
 
     fn readCharIfNeq(s: *Stream, ch: u8) ?u8 {
         if (s.hasRemaining() and s.str[s.loc] != ch) {
-            defer s.loc += 1;
-            return s.str[s.loc];
+            s.loc += 1;
+            return s.str[s.loc - 1];
         } else {
             return null;
         }
     }
 
-    fn readUnsignedInt(s: *Stream, comptime Int: type) error{Parse,OutOfMemory}!?Int {
+    fn readUnsignedInt(s: *Stream, comptime Int: type) error{ Parse, OutOfMemory }!?Int {
         if (s.readCharIf(std.ascii.isDigit)) |ch0| {
             var int: Int = ch0 - '0';
             while (s.readCharIf(std.ascii.isDigit)) |ch| {
@@ -190,7 +177,7 @@ const Stream = struct {
         }
     }
 
-    fn readCharClass(s: *Stream) error{Parse,OutOfMemory}!u128 {
+    fn readCharClass(s: *Stream) error{ Parse, OutOfMemory }!u128 {
         var negated = false;
         var last: ?u8 = undefined;
         var class_mask: u128 = 0;
@@ -225,7 +212,7 @@ const Stream = struct {
         return if (negated) ~class_mask else class_mask;
     }
 
-    fn readQuantifier(s: *Stream, gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node)) error{Parse,OutOfMemory}!void {
+    fn readQuantifier(s: *Stream, gpa: std.mem.Allocator, nodes: *std.MultiArrayList(Node)) error{ Parse, OutOfMemory }!void {
         if (s.readCharIfEq('*')) {
             try genRepeat(gpa, nodes, 0, null);
         } else if (s.readCharIfEq('+')) {
@@ -254,7 +241,7 @@ const Stream = struct {
     }
 };
 
-pub fn parse(gpa: std.mem.Allocator, str: []const u8) error{Parse,OutOfMemory}!Ast {
+pub fn parse(gpa: std.mem.Allocator, str: []const u8) error{ Parse, OutOfMemory }!Ast {
     const StackFrame = struct {
         term: ?usize = null,
         expr: ?usize = null,
@@ -339,10 +326,10 @@ pub fn parse(gpa: std.mem.Allocator, str: []const u8) error{Parse,OutOfMemory}!A
             var old_frame = stack.popOrNull() orelse return error.Parse;
             try curr_frame.addTermToExpr(gpa, &nodes);
             try s.readQuantifier(gpa, &nodes);
-            try old_frame.addAtomToTerm(gpa, &nodes);
             if (curr_frame.look_around) |look_around| {
                 try nodes.append(gpa, .{ .look_around = look_around });
             }
+            try old_frame.addAtomToTerm(gpa, &nodes);
             curr_frame = old_frame;
         } else {
             return error.Parse;

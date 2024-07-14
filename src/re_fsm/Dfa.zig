@@ -27,10 +27,10 @@ const set = struct {
         return .{ lo < items.len and items[lo] == key, lo };
     }
 
-    fn insert(gpa: std.mem.Allocator, items: *std.ArrayListUnmanaged(usize), key: usize) error{OutOfMemory}!bool {
+    fn insert(arena: std.mem.Allocator, items: *std.ArrayListUnmanaged(usize), key: usize) error{OutOfMemory}!bool {
         const found, const index = find(items.items, key);
         if (!found) {
-            try items.insert(gpa, index, key);
+            try items.insert(arena, index, key);
             return true;
         }
         return false;
@@ -49,62 +49,87 @@ const set = struct {
 };
 
 const NfaEdges = struct {
-    map: NfaEdgeMap,
+    sym_map: NfaSymEdgeMap,
+    eps_map: NfaEpsEdgeMap,
     state_set: std.ArrayListUnmanaged(usize) = .{},
-    pq: EClosurePriorityQueue,
+    pq: EpsClosurePriorityQueue,
 
-    const EClosurePriorityQueue = std.PriorityQueue(usize, void, struct {
-            fn f(ctx: void, lhs: usize, rhs: usize) std.math.Order {
-                _ = ctx;
-                return std.math.order(rhs, lhs);
-            }
+    const EpsClosurePriorityQueue = std.PriorityQueue(usize, void, struct {
+        fn f(ctx: void, lhs: usize, rhs: usize) std.math.Order {
+            _ = ctx;
+            return std.math.order(rhs, lhs);
+        }
     }.f);
 
-    const NfaEdgeMap = std.AutoHashMapUnmanaged(struct { usize, ?u7 }, std.ArrayListUnmanaged(usize));
+    const NfaSymEdgeMap = std.AutoHashMapUnmanaged(struct { usize, u7 }, std.ArrayListUnmanaged(usize));
+    const NfaEpsEdgeMap = std.AutoHashMapUnmanaged(usize, struct { to: std.ArrayListUnmanaged(usize), gates: std.ArrayListUnmanaged(usize) });
 
-    fn init(gpa: std.mem.Allocator, edges: []Nfa.Edge) error{OutOfMemory}!NfaEdges {
-        var map = NfaEdgeMap{};
-        for (edges) |edge| {
-            const entry = try map.getOrPutValue(gpa, .{ edge.from, edge.sym }, .{});
-            try entry.value_ptr.append(gpa, edge.to);
+    fn init(arena: std.mem.Allocator, group: Nfa.DigraphGroup) error{OutOfMemory}!NfaEdges {
+        var sym_map = NfaSymEdgeMap{};
+        var eps_map = NfaEpsEdgeMap{};
+        for (group.edges.items) |edge| {
+            if (edge.sym) |sym| {
+                const entry = try sym_map.getOrPutValue(arena, .{ edge.from, sym }, .{});
+                try entry.value_ptr.append(arena, edge.to);
+            } else {
+                const entry = try eps_map.getOrPutValue(arena, edge.from, .{ .to = .{}, .gates = .{} });
+                try entry.value_ptr.to.append(arena, edge.to);
+            }
+        }
+        for (group.gate_edges.items, 0..) |gate_edge, gate_edge_index| {
+            const entry = try eps_map.getOrPutValue(arena, gate_edge.from, .{ .to = .{}, .gates = .{} });
+            try entry.value_ptr.gates.append(arena, gate_edge_index);
         }
 
-        return .{ .map = map, .pq = EClosurePriorityQueue.init(gpa, {}) };
+        return .{ .sym_map = sym_map, .eps_map = eps_map, .pq = EpsClosurePriorityQueue.init(arena, {}), };
     }
 
-    fn eClosure(nfa_edges: *NfaEdges, gpa: std.mem.Allocator) error{OutOfMemory}!void {
+    fn eClosure(nfa_edges: *NfaEdges, arena: std.mem.Allocator, group: Nfa.DigraphGroup) error{OutOfMemory}!void {
         // https://github.com/ziglang/zig/pull/20282
         nfa_edges.pq.items.len = 0;
         try nfa_edges.pq.addSlice(nfa_edges.state_set.items);
         while (nfa_edges.pq.removeOrNull()) |state| {
-            if (nfa_edges.map.get(.{ state, null })) |to_states| {
-                for (to_states.items) |to_state| {
-                    if (try set.insert(gpa, &nfa_edges.state_set, to_state)) {
+            if (nfa_edges.eps_map.get(state)) |value| {
+                for (value.to.items) |to_state| {
+                    if (try set.insert(arena, &nfa_edges.state_set, to_state)) {
                         try nfa_edges.pq.add(to_state);
+                    }
+                }
+                for (value.gates.items) |gate_edge_index| {
+                    const gate_edge = group.gate_edges.items[gate_edge_index];
+                    const digraph = group.digraphs.items[gate_edge.digraph];
+                    _, const final_state = set.find(nfa_edges.state_set.items, digraph.state_index + digraph.reject_count);
+                    if ((final_state < nfa_edges.state_set.items.len and nfa_edges.state_set.items[final_state] < digraph.state_index + digraph.reject_count + digraph.accept_count) == (gate_edge.sign == .pos)) {
+                        if (try set.insert(arena, &nfa_edges.state_set, gate_edge.to)) {
+                            try nfa_edges.pq.add(gate_edge.to);
+                        }
                     }
                 }
             }
         }
     }
 
-    fn move(nfa_edges: *NfaEdges, gpa: std.mem.Allocator, from: []const usize, sym: u7) error{OutOfMemory}!void {
+    fn move(nfa_edges: *NfaEdges, arena: std.mem.Allocator, from: []const usize, sym: u7) error{OutOfMemory}!void {
         nfa_edges.state_set.clearRetainingCapacity();
         for (from) |from_state| {
-            if (nfa_edges.map.get(.{ from_state, sym })) |to_states| {
+            if (nfa_edges.sym_map.get(.{ from_state, sym })) |to_states| {
                 for (to_states.items) |to_state| {
-                    _ = try set.insert(gpa, &nfa_edges.state_set, to_state);
+                    _ = try set.insert(arena, &nfa_edges.state_set, to_state);
                 }
             }
         }
     }
 };
 
-pub fn fromNfa(gpa: std.mem.Allocator, nfa: Nfa) error{OutOfMemory}!Dfa {
+pub fn init(gpa: std.mem.Allocator, group: Nfa.DigraphGroup) error{OutOfMemory}!struct { Dfa, []Nfa.GateEdge } {
     var arena_obj = std.heap.ArenaAllocator.init(gpa);
     defer arena_obj.deinit();
     const arena = arena_obj.allocator();
 
-    var nfa_edges = try NfaEdges.init(arena, nfa.edges);
+    var deferred_gates: std.ArrayListUnmanaged(Nfa.GateEdge) = .{};
+    defer deferred_gates.deinit(gpa);
+
+    var nfa_edges = try NfaEdges.init(arena, group);
     var nfa_to_dfa: std.ArrayHashMapUnmanaged([]const usize, void, set.HashCtx, true) = .{};
 
     var has_dump_state = false;
@@ -120,7 +145,7 @@ pub fn fromNfa(gpa: std.mem.Allocator, nfa: Nfa) error{OutOfMemory}!Dfa {
     try dfa_states.append(gpa, .{ .final = false, .edge_mask = 0, .edges = .{} });
 
     try nfa_edges.state_set.append(arena, 0);
-    try nfa_edges.eClosure(arena);
+    try nfa_edges.eClosure(arena, group);
     try nfa_to_dfa.putNoClobber(arena, try nfa_edges.state_set.toOwnedSlice(arena), {});
 
     while (dfa_states.len < nfa_to_dfa.count()) {
@@ -136,7 +161,7 @@ pub fn fromNfa(gpa: std.mem.Allocator, nfa: Nfa) error{OutOfMemory}!Dfa {
             if (nfa_edges.state_set.items.len == 0) {
                 has_dump_state = true;
             } else {
-                try nfa_edges.eClosure(arena);
+                try nfa_edges.eClosure(arena, group);
     
                 const gop = try nfa_to_dfa.getOrPut(arena, nfa_edges.state_set.items);
                 if (!gop.found_existing) {
@@ -146,15 +171,33 @@ pub fn fromNfa(gpa: std.mem.Allocator, nfa: Nfa) error{OutOfMemory}!Dfa {
                 try from_edges.append(gpa, gop.index);
             }
         }
+        for (group.deferred_gate_edges.items) |gate_edge| {
+            const from_state_set = nfa_to_dfa.entries.items(.key)[state];
+            const found, _ = set.find(from_state_set, gate_edge.from);
+            if (found) {
+                nfa_edges.state_set.clearRetainingCapacity();
+                try nfa_edges.state_set.appendSlice(gpa, from_state_set);
+                if (try set.insert(arena, &nfa_edges.state_set, gate_edge.to)) {
+                    try nfa_edges.eClosure(arena, group);
+                    const gop = try nfa_to_dfa.getOrPut(arena, nfa_edges.state_set.items);
+                    if (!gop.found_existing) {
+                        gop.key_ptr.* = try nfa_edges.state_set.toOwnedSlice(arena);
+                    }
+                    try deferred_gates.append(gpa, .{ .from = state, .to = gop.index, .digraph = gate_edge.digraph, .sign = gate_edge.sign });
+                }
+            }
+        }
     }
 
+    const main_digraph = group.digraphs.items[0];
     const state_sets = nfa_to_dfa.entries.items(.key);
     const finals = dfa_states.items(.final);
     for (0..nfa_to_dfa.count()) |i| {
-        finals[i] = state_sets[i].len != 0 and state_sets[i][state_sets[i].len - 1] >= nfa.reject_count;
+        _, const final_state = set.find(state_sets[i], main_digraph.state_index + main_digraph.reject_count);
+        finals[i] = final_state < state_sets[i].len and state_sets[i][final_state] < main_digraph.state_index + main_digraph.reject_count + main_digraph.accept_count;
     }
 
-    return .{ .has_dump_state = has_dump_state, .states = dfa_states };
+    return .{ .{ .has_dump_state = has_dump_state,  .states = dfa_states }, try deferred_gates.toOwnedSlice(gpa) };
 }
 
 fn edgeTo(edge_mask: u128, edges: []usize, ch: u7) usize {
@@ -196,21 +239,22 @@ pub fn minimize(dfa: Dfa, gpa: std.mem.Allocator) error{OutOfMemory}!Dfa {
         return .{ .has_dump_state = true, .states = new_dfa_states };
     }
 
+    // valid states, ordered by partition
     var states_ordered = try gpa.alloc(usize, dfa.states.len - no_ds);
     defer gpa.free(states_ordered);
 
-    var state_partition = try gpa.alloc(usize, dfa.states.len - no_ds);
+    var state_partition = try gpa.alloc(usize, dfa.states.len);
     defer gpa.free(state_partition);
 
     var p: std.ArrayListUnmanaged([]usize) = .{};
     defer p.deinit(gpa);
     {
-        var lo: usize = no_ds + 1;
-        var hi: usize = dfa.states.len;
-        states_ordered[0] = no_ds; // if putting final states first, revert this!
-        state_partition[0] = no_ds;
-        for (1..states_ordered.len) |state| {
-            if (state_finals[state] == state_finals[0]) {
+        var lo: usize = 1;
+        var hi: usize = states_ordered.len;
+        states_ordered[0] = no_ds;
+        state_partition[no_ds] = 0;
+        for (1 + no_ds..dfa.states.len) |state| {
+            if (state_finals[state] == state_finals[no_ds]) {
                 states_ordered[lo] = state;
                 lo += 1;
                 state_partition[state] = 0;
@@ -249,8 +293,8 @@ pub fn minimize(dfa: Dfa, gpa: std.mem.Allocator) error{OutOfMemory}!Dfa {
                         try p.append(gpa, p.items[part_Y][0..lo]);
                         p.items[part_Y] = p.items[part_Y][lo..];
                     }
-                    for (p.items[p.items.len - 1]) |index| {
-                        state_partition[index] = p.items.len - 1;
+                    for (p.items[p.items.len - 1]) |state| {
+                        state_partition[state] = p.items.len - 1;
                     }
                 }
             }
