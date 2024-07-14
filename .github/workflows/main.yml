@@ -34,6 +34,7 @@ jobs:
           retention-days: 1
   deploy:
     needs: install
+    if: github.ref == 'refs/heads/main'  # Only deploy on main branch
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
