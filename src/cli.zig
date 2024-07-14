@@ -14,10 +14,10 @@ pub fn main() !void {
     defer input.deinit();
 
     while (true) {
+        defer bw.flush() catch {};
         input.clearRetainingCapacity();
         br.reader().streamUntilDelimiter(input.writer(), '\n', 2048) catch |err| switch (err) {
-            error.StreamTooLong => break,
-            error.EndOfStream => break,
+            error.EndOfStream, error.StreamTooLong => break,
             else => |e| return e,
         };
 
@@ -29,6 +29,5 @@ pub fn main() !void {
             else => |e| return e,
         };
         try bw.writer().writeByte('\n');
-        try bw.flush();
     }
 }
