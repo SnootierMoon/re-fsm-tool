@@ -3,11 +3,13 @@ const std = @import("std");
 const Nfa = @import("Nfa.zig");
 const Dfa = @import("Dfa.zig");
 
+has_dump_state: bool,
 states: std.MultiArrayList(State),
 
 const State = struct {
     final: bool,
-    edges: [128]usize,
+    edge_mask: u128,
+    edges: std.ArrayListUnmanaged(usize),
 };
 
 const set = struct {
@@ -103,30 +105,46 @@ pub fn fromNfa(gpa: std.mem.Allocator, nfa: Nfa) error{OutOfMemory}!Dfa {
     const arena = arena_obj.allocator();
 
     var nfa_edges = try NfaEdges.init(arena, nfa.edges);
-
     var nfa_to_dfa: std.ArrayHashMapUnmanaged([]const usize, void, set.HashCtx, true) = .{};
+
+    var has_dump_state = false;
     var dfa_states: std.MultiArrayList(State) = .{};
-    errdefer dfa_states.deinit(gpa);
+    errdefer {
+        for (dfa_states.items(.edges)) |*edges| {
+            edges.deinit(gpa);
+        }
+        dfa_states.deinit(gpa);
+    }
+
+    try nfa_to_dfa.putNoClobber(arena, &.{}, {});
+    try dfa_states.append(gpa, .{ .final = false, .edge_mask = 0, .edges = .{} });
 
     try nfa_edges.state_set.append(arena, 0);
     try nfa_edges.eClosure(arena);
     try nfa_to_dfa.putNoClobber(arena, try nfa_edges.state_set.toOwnedSlice(arena), {});
 
     while (dfa_states.len < nfa_to_dfa.count()) {
-        const state = try dfa_states.addOne(gpa);
+        const state = dfa_states.len;
+        try dfa_states.append(gpa, .{ .final = undefined, .edge_mask = 0, .edges = .{} });
+        const slice = dfa_states.slice();
+        const from_edge_mask = &slice.items(.edge_mask)[state];
+        var from_edges = &slice.items(.edges)[state];
         for (0..128) |sym| {
-            const slice = dfa_states.slice();
             const from_state_set = nfa_to_dfa.entries.items(.key)[state];
-            const from_edges = &slice.items(.edges)[state];
-
             try nfa_edges.move(arena, from_state_set, @intCast(sym));
-            try nfa_edges.eClosure(arena);
 
-            const gop = try nfa_to_dfa.getOrPut(arena, nfa_edges.state_set.items);
-            if (!gop.found_existing) {
-                gop.key_ptr.* = try nfa_edges.state_set.toOwnedSlice(arena);
+            if (nfa_edges.state_set.items.len == 0) {
+                has_dump_state = true;
+            } else {
+                try nfa_edges.eClosure(arena);
+    
+                const gop = try nfa_to_dfa.getOrPut(arena, nfa_edges.state_set.items);
+                if (!gop.found_existing) {
+                    gop.key_ptr.* = try nfa_edges.state_set.toOwnedSlice(arena);
+                }
+                from_edge_mask.* |= @as(u128, 1) << @intCast(sym);
+                try from_edges.append(gpa, gop.index);
             }
-            from_edges[sym] = gop.index;
         }
     }
 
@@ -136,72 +154,86 @@ pub fn fromNfa(gpa: std.mem.Allocator, nfa: Nfa) error{OutOfMemory}!Dfa {
         finals[i] = state_sets[i].len != 0 and state_sets[i][state_sets[i].len - 1] >= nfa.reject_count;
     }
 
-    return .{ .states = dfa_states };
+    return .{ .has_dump_state = has_dump_state, .states = dfa_states };
+}
+
+fn edgeTo(edge_mask: u128, edges: []usize, ch: u7) usize {
+    const bit = @as(u128, 1) << ch;
+    if (edge_mask & bit != 0) {
+        return edges[@popCount(edge_mask & (bit - 1))];
+    } else {
+        return 0;
+    }
 }
 
 pub fn deinit(dfa: *Dfa, gpa: std.mem.Allocator) void {
+        for (dfa.states.items(.edges)) |*edges| {
+            edges.deinit(gpa);
+        }
     dfa.states.deinit(gpa);
 }
 
 pub fn minimize(dfa: Dfa, gpa: std.mem.Allocator) error{OutOfMemory}!Dfa {
     const slice = dfa.states.slice();
     const state_finals = slice.items(.final);
+    const state_edge_mask = slice.items(.edge_mask);
     const state_edges = slice.items(.edges);
 
-    std.log.info("{any}", .{state_finals});
+    const no_ds: usize = @intFromBool(!dfa.has_dump_state);
 
-    for (state_finals[1..]) |final| {
-        if (final != state_finals[0]) {
+    for (state_finals[1 + no_ds..]) |final| {
+        if (final != state_finals[no_ds]) {
             break;
         }
     } else {
         var new_dfa_states: std.MultiArrayList(State) = .{};
         errdefer new_dfa_states.deinit(gpa);
-        try new_dfa_states.append(gpa, .{
-            .final = state_finals[0],
-            .edges = .{0} ** 128,
-        });
-    
-        return .{ .states = new_dfa_states };
+        var edges: std.ArrayListUnmanaged(usize) = .{};
+        errdefer edges.deinit(gpa);
+        try edges.appendNTimes(gpa, 1, 128);
+        try new_dfa_states.append(gpa, .{ .final = false, .edge_mask = 0, .edges = .{} });
+        try new_dfa_states.append(gpa, .{ .final = state_finals[no_ds], .edge_mask = std.math.maxInt(u128), .edges = edges });
+        return .{ .has_dump_state = true, .states = new_dfa_states };
     }
 
-    var states_ordered = try gpa.alloc(usize, dfa.states.len);
+    var states_ordered = try gpa.alloc(usize, dfa.states.len - no_ds);
     defer gpa.free(states_ordered);
 
-    var state_partitions = try gpa.alloc(usize, dfa.states.len);
-    defer gpa.free(state_partitions);
+    var state_partition = try gpa.alloc(usize, dfa.states.len - no_ds);
+    defer gpa.free(state_partition);
 
-    var p = std.ArrayList([]usize).init(gpa);
-    defer p.deinit();
+    var p: std.ArrayListUnmanaged([]usize) = .{};
+    defer p.deinit(gpa);
     {
-        var lo: usize = 1;
+        var lo: usize = no_ds + 1;
         var hi: usize = dfa.states.len;
-        states_ordered[0] = 0; // if putting final states first, revert this!
-        state_partitions[0] = 0;
-        for (1..dfa.states.len) |state| {
+        states_ordered[0] = no_ds; // if putting final states first, revert this!
+        state_partition[0] = no_ds;
+        for (1..states_ordered.len) |state| {
             if (state_finals[state] == state_finals[0]) {
                 states_ordered[lo] = state;
                 lo += 1;
-                state_partitions[state] = 0;
+                state_partition[state] = 0;
             } else {
                 hi -= 1;
                 states_ordered[hi] = state;
-                state_partitions[state] = 1;
+                state_partition[state] = 1;
             }
         }
-        try p.appendSlice(&.{ states_ordered[0..lo], states_ordered[lo..] });
+        try p.appendSlice(gpa, &.{ states_ordered[0..lo], states_ordered[lo..] });
     }
 
-    std.log.info("{any}", .{p.items});
     var part_A: usize = 0;
     while (part_A < p.items.len) : (part_A += 1) {
-        for (0..128) |ch| {
+        for (0..128) |sym| {
             for (0..p.items.len) |part_Y| {
-                const part_0 = state_partitions[state_edges[p.items[part_Y][0]][ch]] == part_A;
+                const state_0 = p.items[part_Y][0];
+                const part_0 = state_partition[edgeTo(state_edge_mask[state_0], state_edges[state_0].items, @intCast(sym))] == part_A;
                 var lo: usize = 1;
                 var hi = p.items[part_Y].len;
                 while (lo < hi) {
-                    const part_i = state_partitions[state_edges[p.items[part_Y][lo]][ch]] == part_A;
+                    const state_i = p.items[part_Y][lo];
+                    const part_i = state_partition[edgeTo(state_edge_mask[state_i], state_edges[state_i].items, @intCast(sym))] == part_A;
                     if (part_0 != part_i) {
                         hi -= 1;
                         std.mem.swap(usize, &p.items[part_Y][lo], &p.items[part_Y][hi]);
@@ -211,52 +243,92 @@ pub fn minimize(dfa: Dfa, gpa: std.mem.Allocator) error{OutOfMemory}!Dfa {
                 }
                 if (hi != p.items[part_Y].len) {
                     if (lo > p.items[part_Y].len / 2) {
-                        try p.append(p.items[part_Y][lo..]);
+                        try p.append(gpa, p.items[part_Y][lo..]);
                         p.items[part_Y] = p.items[part_Y][0..lo];
                     } else {
-                        try p.append(p.items[part_Y][0..lo]);
+                        try p.append(gpa, p.items[part_Y][0..lo]);
                         p.items[part_Y] = p.items[part_Y][lo..];
                     }
                     for (p.items[p.items.len - 1]) |index| {
-                        state_partitions[index] = p.items.len - 1;
+                        state_partition[index] = p.items.len - 1;
                     }
                 }
             }
         }
-        std.log.info("{any}", .{p.items});
     }
+
+    var canon_state = try gpa.alloc(?usize, p.items.len);
+    defer gpa.free(canon_state);
+    @memset(canon_state, null);
+    canon_state[state_partition[1]] = 1;
+    const has_dump_state = for (p.items, 0..) |part, part_index| {
+        const is_dump_state = for (0..128) |sym| {
+            if (state_partition[edgeTo(state_edge_mask[part[0]], state_edges[part[0]].items, @intCast(sym))] != part_index) {
+                break false;
+            }
+        } else true;
+
+        if (is_dump_state) {
+            canon_state[part_index] = 0;
+            break true;
+        }
+    } else false;
 
     var new_dfa_states: std.MultiArrayList(State) = .{};
     errdefer new_dfa_states.deinit(gpa);
-    try new_dfa_states.resize(gpa, p.items.len);
+    try new_dfa_states.resize(gpa, @intFromBool(!has_dump_state) + p.items.len);
 
     const new_slice = new_dfa_states.slice();
     const new_state_finals = new_slice.items(.final);
+    const new_state_edge_mask = new_slice.items(.edge_mask);
     const new_state_edges = new_slice.items(.edges);
 
-    for (p.items, 0..) |part, new_state| {
+    new_state_finals[0] = false;
+    new_state_edge_mask[0] = 0;
+    new_state_edges[0] = .{};
+
+    var next_canon_state: usize = 2;
+    var fifo = std.fifo.LinearFifo(usize, .Dynamic).init(gpa);
+    defer fifo.deinit();
+    try fifo.writeItem(state_partition[1]);
+
+    while (fifo.readItem()) |part_index| {
+        const part = p.items[part_index];
+        const new_state = canon_state[part_index].?;
         new_state_finals[new_state] = state_finals[part[0]];
+        new_state_edge_mask[new_state] = 0;
+        new_state_edges[new_state] = .{};
         for (0..128) |sym| {
-            new_state_edges[new_state][sym] = state_partitions[state_edges[part[0]][sym]];
+            const to_part_index = state_partition[edgeTo(state_edge_mask[part[0]], state_edges[part[0]].items, @intCast(sym))];
+            if (canon_state[to_part_index] == null) {
+                canon_state[to_part_index] = next_canon_state;
+                next_canon_state += 1;
+                try fifo.writeItem(to_part_index);
+            }
+            if (canon_state[to_part_index] != 0) {
+                new_state_edge_mask[new_state] |= @as(u128, 1) << @intCast(sym);
+                try new_state_edges[new_state].append(gpa, canon_state[to_part_index].?);
+            }
         }
     }
-
-    return .{ .states = new_dfa_states };
+    
+    return .{ .has_dump_state = has_dump_state, .states = new_dfa_states };
 }
 
 pub fn viz(dfa: Dfa, writer: anytype) !void {
     const slice = dfa.states.slice();
     const state_finals = slice.items(.final);
+    const state_edge_mask = slice.items(.edge_mask);
     const state_edges = slice.items(.edges);
 
     try writer.print("digraph {{\n  node [shape=circle]\n ", .{});
-    for (0..dfa.states.len) |i| {
+    for (1..dfa.states.len) |i| {
         if (!state_finals[i]) {
             try writer.print(" {}", .{i});
         }
     }
     try writer.print("\n  node [shape=doublecircle]\n ", .{});
-    for (0..dfa.states.len) |i| {
+    for (1..dfa.states.len) |i| {
         if (state_finals[i]) {
             try writer.print(" {}", .{i});
         }
@@ -265,16 +337,23 @@ pub fn viz(dfa: Dfa, writer: anytype) !void {
     for (state_edges, 0..) |edges, from| {
         var labeled_edges: [128]struct{ to: usize, mask: u128 } = undefined;
         var labeled_edge_count: usize = 0;
-        for (edges, 0..) |to, sym| {
-            const index = for (labeled_edges[0..labeled_edge_count], 0..) |labeled_edge, index| {
-                if (labeled_edge.to == to) break index;
-            } else blk: {
-                defer labeled_edge_count += 1;
-                labeled_edges[labeled_edge_count].to = to;
-                labeled_edges[labeled_edge_count].mask = 0;
-                break :blk labeled_edge_count;
-            };
-            labeled_edges[index].mask |= @as(u128, 1) << @intCast(sym);
+
+        var edges_it = edges.items;
+        for (0..128) |sym| {
+            const bit = @as(u128, 1) << @intCast(sym);
+            if (state_edge_mask[from] & bit != 0) {
+                const to = edges_it[0];
+                defer edges_it = edges_it[1..];
+                const index = for (labeled_edges[0..labeled_edge_count], 0..) |labeled_edge, index| {
+                    if (labeled_edge.to == to) break index;
+                } else blk: {
+                    defer labeled_edge_count += 1;
+                    labeled_edges[labeled_edge_count].to = to;
+                    labeled_edges[labeled_edge_count].mask = 0;
+                    break :blk labeled_edge_count;
+                };
+                labeled_edges[index].mask |= @as(u128, 1) << @intCast(sym);
+            }
         }
         for (labeled_edges[0..labeled_edge_count]) |edge| {
             try writer.print("\n  {} -> {} [label=\"", .{ from, edge.to });
