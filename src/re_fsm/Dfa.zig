@@ -226,13 +226,13 @@ pub fn viz(dfa: Dfa, writer: anytype) !void {
     const state_edge_mask = slice.items(.edge_mask);
     const state_edges = slice.items(.edges);
 
-    try writer.print("digraph {{\n  node [shape=circle]\n ", .{});
+    try writer.print("digraph{{node[shape=circle]", .{});
     for (1..dfa.states.len) |i| {
         if (!state_final[i]) {
             try writer.print(" {}", .{i});
         }
     }
-    try writer.print("\n  node [shape=doublecircle]\n ", .{});
+    try writer.print(" node[shape=doublecircle]", .{});
     for (1..dfa.states.len) |i| {
         if (state_final[i]) {
             try writer.print(" {}", .{i});
@@ -261,10 +261,10 @@ pub fn viz(dfa: Dfa, writer: anytype) !void {
             }
         }
         for (labeled_edges[0..labeled_edge_count]) |edge| {
-            try writer.print("\n  {} -> {} [label=\"", .{ from, edge.to });
+            try writer.print(" {}->{}[label=\"", .{ from, edge.to });
             try @import("../re_fsm.zig").printMask(writer, edge.mask);
             try writer.print("\"]", .{});
         }
     }
-    try writer.print("\n}}", .{});
+    try writer.print("}}", .{});
 }

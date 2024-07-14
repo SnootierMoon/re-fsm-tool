@@ -25,7 +25,7 @@ jobs:
       - name: Test
         run: zig build test
       - name: Build website
-        run: zig build install-www
+        run: zig build install-www -Doptimize=ReleaseSmall
       - name: Upload site files
         uses: actions/upload-artifact@v4
         with:

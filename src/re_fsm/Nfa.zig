@@ -66,8 +66,6 @@ pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
     const ast_tags = ast_slice.items(.tags);
     const ast_data = ast_slice.items(.data);
 
-    std.log.info("{any}", .{ast_tags});
-
     for (ast_tags, 0..) |tag, node| {
         switch (tag) {
             .epsilon, .mask => {
