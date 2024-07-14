@@ -25,7 +25,6 @@ fn logImpl(
     console_print(lvl, msg.ptr, msg.len);
 }
 
-
 var input_regex: []u8 = &.{};
 var output_digraph = std.ArrayList(u8).init(std.heap.wasm_allocator);
 

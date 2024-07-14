@@ -51,22 +51,16 @@ pub fn printMask(writer: anytype, mask: u128) !void {
     }
 }
 
-pub fn run(writer: anytype, allocator: std.mem.Allocator, input_regex: []const u8) !void {
-    var ast = try Ast.parse(allocator, input_regex);
-    defer ast.deinit(allocator);
+pub fn run(writer: anytype, gpa: std.mem.Allocator, input_regex: []const u8) !void {
+    var ast = try Ast.parse(gpa, input_regex);
+    defer ast.deinit(gpa);
 
-    // try ast.viz(output_digraph.writer());
+    // try ast.viz(writer);
 
-    var nfa = try Nfa.fromAst(allocator, ast);
-    defer nfa.deinit(allocator);
+    var nfa = try Nfa.init(gpa, ast);
+    defer nfa.deinit(gpa);
 
-    // try nfa.viz(output_digraph.writer());
+    // var min_dfa = try dfa.minimize(gpa);
+    // defer min_dfa.deinit(gpa);
 
-    var dfa = try Dfa.fromNfa(allocator, nfa);
-    defer dfa.deinit(allocator);
-
-    var min_dfa = try dfa.minimize(allocator);
-    defer min_dfa.deinit(allocator);
-
-    try min_dfa.viz(writer);
 }
