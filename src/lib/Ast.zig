@@ -203,7 +203,14 @@ pub fn parse(gpa: std.mem.Allocator, flavor: Flavor, str: []const u8) parsers.Er
 }
 
 test "fuzz for no panic" {
-    const input_bytes = std.testing.fuzzInput(.{});
-    var ast = parse(std.testing.allocator, .posix_bre, input_bytes) catch return;
-    ast.deinit(std.testing.allocator);
+    const fuzz_test = struct {
+        fn fuzz_test(input: []const u8) anyerror!void {
+            var ast = parse(std.testing.allocator, .posix_bre, input) catch |err| switch (err) {
+                error.ParseFail => return,
+                else => return err,
+            };
+            ast.deinit(std.testing.allocator);
+        }
+    }.fuzz_test;
+    try std.testing.fuzz(fuzz_test, .{});
 }

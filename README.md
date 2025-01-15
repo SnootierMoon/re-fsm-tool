@@ -16,7 +16,7 @@ View a demo at [the GitHub page](https://snootiermoon.github.io/re-fsm-tool).
 ```sh
 git clone https://github.com/SnootierMoon/re-fsm-tool.git
 cd re-fsm-tool
-zig build run
+zig build run-server -Dopen
 ```
 
 The [Zig](https://ziglang.org/download/) compiler is a dependency for building
@@ -89,3 +89,5 @@ support:
 
  - Viz.js looks nice, but has a low state limit
  - Dagre/D3 looks a little worse, but has an incredibly high state limit
+
+The new plan is to use Dagre with a custom interactive renderer
