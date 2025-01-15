@@ -2,8 +2,69 @@ const std = @import("std");
 
 pub const Ast = @import("Ast.zig");
 pub const Dfa = @import("Dfa.zig");
-pub const Flavor = enum { pcre, posix_bre, posix_ere };
 pub const Nfa = @import("Nfa.zig");
+
+pub const Flavor = enum(u8) {
+    posix_bre,
+    posix_ere,
+    cmsc330,
+    pcre,
+
+    pub const values = std.enums.values(Flavor);
+    pub const default: Flavor = .posix_bre;
+
+    pub const infos: [values.len]Info = infos: {
+        var infos_arr: [values.len]Info = undefined;
+        for (&infos_arr, Flavor.values) |*info_ptr, flavor| {
+            info_ptr.* = flavor.info();
+        }
+        break :infos infos_arr;
+    };
+
+    pub fn info(flavor: Flavor) Info {
+        const desc = switch (flavor) {
+            .posix_bre => "BRE (POSIX)",
+            .posix_ere => "ERE (POSIX)",
+            .cmsc330 => "CMSC330",
+            .pcre => "PCRE (Perl)",
+        };
+        const example = switch (flavor) {
+            .posix_bre => "^\\(abc\\+\\|xyz\\?\\)[0-3]*$",
+            .posix_ere => "^(abc+|xyz?)[0-3]*$",
+            .cmsc330 => "(abcc*|xy(z|))(0|1|2|3)*",
+            .pcre => "unsupported!",
+        };
+        return .{
+            .name = @tagName(flavor),
+            .desc = desc,
+            .example = example,
+            .value = @intFromEnum(flavor),
+        };
+    }
+
+    pub const Info = struct {
+        name: [:0]const u8,
+        desc: [:0]const u8,
+        value: @typeInfo(Flavor).@"enum".tag_type,
+        example: [:0]const u8,
+
+        pub const names: [values.len][:0]const u8 = names: {
+            var names_arr: [Flavor.values.len][:0]const u8 = undefined;
+            for (&names_arr, infos) |*name, info_val| {
+                name.* = info_val.name;
+            }
+            break :names names_arr;
+        };
+
+        pub const descs: [values.len][:0]const u8 = descs: {
+            var descs_arr: [Flavor.values.len][:0]const u8 = undefined;
+            for (&descs_arr, infos) |*desc, info_val| {
+                desc.* = info_val.desc;
+            }
+            break :descs descs_arr;
+        };
+    };
+};
 
 fn constructReverseDigraph(
     dfa_arena: std.mem.Allocator,
@@ -119,6 +180,7 @@ pub fn minimumDfa(gpa: std.mem.Allocator, nfa: Nfa) std.mem.Allocator.Error!Dfa 
         const dfa, _ = try Dfa.init(gpa, final_group);
         return dfa;
     }
+    // TODO: if nfa.groups.len == 1, perform hopcroft's algorithm
 }
 
 pub fn printMask(writer: anytype, mask: u128) !void {

@@ -195,13 +195,14 @@ test Iterator {
 
 pub fn parse(gpa: std.mem.Allocator, flavor: Flavor, str: []const u8) parsers.Error!Ast {
     return switch (flavor) {
-        .pcre => try parsers.pcre(gpa, str),
         .posix_bre => try parsers.posixBre(gpa, str),
         .posix_ere => try parsers.posixEre(gpa, str),
+        .cmsc330 => try parsers.cmsc330(gpa, str),
+        .pcre => try parsers.pcre(gpa, str),
     };
 }
 
-test "fuzz no panic" {
+test "fuzz for no panic" {
     const input_bytes = std.testing.fuzzInput(.{});
     var ast = parse(std.testing.allocator, .posix_bre, input_bytes) catch return;
     ast.deinit(std.testing.allocator);

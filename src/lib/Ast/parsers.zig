@@ -399,12 +399,6 @@ fn posixIntervalExpression(s: *Stream, mode: enum { bre, ere }) Error!Repetition
     return rep;
 }
 
-/// Parse a PCRE.
-pub fn pcre(gpa: std.mem.Allocator, str: []const u8) Error!Ast {
-    _ = .{ gpa, str };
-    unreachable;
-}
-
 /// Parse a POSIX BRE.
 ///
 /// See POSIX.1-2024, Section 9.3.
@@ -879,4 +873,90 @@ pub fn posixEre(gpa: std.mem.Allocator, str: []const u8) Error!Ast {
     try bld.endTerm(gpa);
     try bld.endExpr(gpa);
     return bld.finish(gpa);
+}
+
+/// Parse a CMSC330 Regex.
+pub fn cmsc330(gpa: std.mem.Allocator, str: []const u8) Error!Ast {
+    var state: enum {
+        beginning_of_term,
+        after_atom,
+        not_after_atom,
+    } = .beginning_of_term;
+    var bld: Builder = .init;
+    defer bld.deinit(gpa);
+
+    var s = try Stream.init(str);
+
+    while (s.readChar()) |ch| {
+        switch (ch) {
+            '(' => {
+                switch (state) {
+                    .beginning_of_term,
+                    .not_after_atom,
+                    => {},
+                    .after_atom => try bld.endAtom(gpa),
+                }
+                try bld.stack_frames.append(gpa, bld.curr_frame);
+                bld.curr_frame = .init;
+                state = .beginning_of_term;
+            },
+            ')' => {
+                switch (state) {
+                    .beginning_of_term,
+                    .not_after_atom => {},
+                    .after_atom => try bld.endAtom(gpa),
+                }
+                try bld.endTerm(gpa);
+                try bld.endExpr(gpa);
+                bld.curr_frame = bld.stack_frames.popOrNull() orelse return error.ParseFail;
+                state = .after_atom;
+            },
+            '*' => {
+                switch (state) {
+                    .beginning_of_term,
+                    .not_after_atom,
+                    => return error.ParseFail,
+                    .after_atom => {},
+                }
+                try bld.pushRepetitionModifier(gpa, .{ .low = 0, .high = null });
+                try bld.endAtom(gpa);
+                state = .not_after_atom;
+            },
+            '|' => {
+                switch (state) {
+                    .beginning_of_term,
+                    .not_after_atom => {},
+                    .after_atom => try bld.endAtom(gpa),
+                }
+                try bld.endTerm(gpa);
+                state = .beginning_of_term;
+            },
+            'a'...'z', 'A'...'Z' => {
+                switch (state) {
+                    .beginning_of_term,
+                    .not_after_atom,
+                    => {},
+                    .after_atom => try bld.endAtom(gpa),
+                }
+                try bld.pushSymbol(gpa, ch);
+                state = .after_atom;
+            },
+            else => return error.ParseFail,
+        }
+    }
+
+    switch (state) {
+        .beginning_of_term,
+        .not_after_atom => {},
+        .after_atom => try bld.endAtom(gpa),
+    }
+    try bld.endTerm(gpa);
+    try bld.endExpr(gpa);
+    return bld.finish(gpa);
+}
+
+/// Parse a PCRE.
+pub fn pcre(gpa: std.mem.Allocator, str: []const u8) Error!Ast {
+    _ = .{ gpa, str };
+    unreachable;
 }

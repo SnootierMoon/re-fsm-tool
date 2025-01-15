@@ -2,12 +2,31 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Regex FSM</title>
+        <meta name="viewport" content="user-scalable=no, width=device-width, initial-scale=1, maximum-scale=1">
+        <title>Regex FSM Tool</title>
         <link rel="stylesheet" href="styles.css">
+        <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
+        <link rel="icon" href="/favicon.ico" type="image/x-icon">
+        <script src="https://cdn.jsdelivr.net/npm/@viz-js/viz/lib/viz-standalone.js"></script>
+        <script src="https://unpkg.com/panzoom@9.4.0/dist/panzoom.min.js"></script>
     </head>
     <body>
-        <script type="module" src="app.js">
-        </script>
+        <div id="top-bar">
+            <input id="regex-input" type="text" name="regex" placeholder="a?(cd){2,3}b+" autocomplete="off">
+            <button id="dropdown-button">&#x2630;</button>
+        </div>
+        <div id="main-box">
+            <div id="output-box">
+            </div>
+            <div id="dropdown-box">
+                <form>
+                    <label for="form-flavor">Choose a RegEx Flavor:</label>
+                    <select id="form-flavor" name="flavor">
+                    </select>
+                </form>
+		<p>The Wasm binary was compiled in <span id="optimize-mode"></span> mode.</p>
+            </div>
+        </div>
+        <script src="app.js" type="module"></script>
     </body>
 </html>

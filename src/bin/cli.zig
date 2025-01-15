@@ -9,11 +9,16 @@ pub const std_options: std.Options = .{
     .fmt_max_depth = 5,
 };
 
-const flavor_names = std.EnumArray(Flavor, []const u8).init(.{
-    .pcre = "PCRE",
-    .posix_bre = "POSIX BRE",
-    .posix_ere = "POSIX ERE",
-});
+const usage = std.fmt.comptimePrint(
+    \\Usage:
+    \\  re-fsm-cli [flavor]
+    \\
+    \\  flavor is one of {s}
+    \\  by default, flavor is {s}
+    \\
+,
+    .{ Flavor.Info.names, Flavor.default.info().name },
+);
 
 pub fn main() !void {
     var gpa_instance: std.heap.GeneralPurposeAllocator(.{}) = .init;
@@ -28,25 +33,21 @@ pub fn main() !void {
         return error.NotATerminal;
     }
 
-    var args = try std.process.argsWithAllocator(gpa);
     const flavor = args: {
+        var args: std.process.ArgIterator = try .initWithAllocator(gpa);
+        defer args.deinit();
         std.debug.assert(args.skip());
-        const flavor = if (args.next()) |flavor_arg|
-            std.meta.stringToEnum(Flavor, flavor_arg) orelse break :args error.InvalidFlavor
-        else
-            .posix_ere;
+        const maybe_flavor_arg = args.next();
         if (args.next()) |_| {
             break :args error.TooManyArguments;
         }
+        const flavor = if (maybe_flavor_arg) |flavor_arg|
+            std.meta.stringToEnum(Flavor, flavor_arg) orelse break :args error.InvalidFlavor
+        else
+            .posix_ere;
         break :args flavor;
     } catch |err| {
-        try stderr.writer().writeAll(
-            \\Usage:
-            \\    re-fsm-cli [flavor]
-            \\    flavor is one of pcre, posix_bre, or posix_ere
-            \\    by default, flavor is posix_ere
-            \\
-        );
+        try stderr.writer().writeAll(usage);
         return err;
     };
 
@@ -56,7 +57,7 @@ pub fn main() !void {
     var input_buf: std.ArrayList(u8) = .init(gpa);
     defer input_buf.deinit();
     while (true) {
-        try buffered_out.writer().print("Enter Regex ({s}): ", .{flavor_names.get(flavor)});
+        try buffered_out.writer().print("Enter Regex ({s}): ", .{flavor.info().name});
         try buffered_out.flush();
         input_buf.clearRetainingCapacity();
         in_buffered.reader().streamUntilDelimiter(input_buf.writer(), '\n', null) catch |err| switch (err) {

@@ -2,11 +2,13 @@ const std = @import("std");
 
 const Ast = @import("re-fsm").Ast;
 const Flavor = @import("re-fsm").Flavor;
+const Nfa = @import("re-fsm").Nfa;
+const minimumDfa = @import("re-fsm").minimumDfa;
 
-const VersionInfo = struct {
-    version: std.SemanticVersion = std.SemanticVersion.parse("0.0.1") catch unreachable,
-    flavors: []const Flavor = std.enums.values(Flavor),
-    optimize: std.builtin.OptimizeMode = @import("builtin").mode,
+const WasmInfo = struct {
+    version: std.SemanticVersion,
+    flavors: []const Flavor.Info,
+    optimize: std.builtin.OptimizeMode,
 };
 
 const js = struct {
@@ -51,37 +53,77 @@ pub const std_options: std.Options = .{
     .logFn = log,
 };
 
-export const version_info = std.fmt.comptimePrint("{}", .{std.json.fmt(VersionInfo{}, .{})}).*;
+export const info = std.fmt.comptimePrint("{}", .{std.json.fmt(WasmInfo{
+    .version = @import("build-info").version,
+    .flavors = &Flavor.infos,
+    .optimize = @import("builtin").mode,
+}, .{})}).*;
 
 var gpa_instance: std.heap.GeneralPurposeAllocator(.{}) = .init;
-var input_regex: []u8 = &.{};
+export var flavor: Flavor = .default;
+var regex_input: []u8 = &.{};
 var input_string: []u8 = &.{};
+var graph: [:0]const u8 = &.{};
 
-const allocator = gpa_instance.allocator();
+const gpa = gpa_instance.allocator();
 
-export fn allocate_input_regex(len: usize) [*]const u8 {
-    allocator.free(input_regex);
-    input_regex = allocator.alloc(u8, len) catch &.{};
-    return input_regex.ptr;
+export fn allocate_regex_input(len: usize) ?[*]const u8 {
+    std.log.info("allocating input regex", .{});
+    regex_input = gpa.realloc(regex_input, len) catch {
+        std.log.err("allocation for input regex failed", .{});
+        return null;
+    };
+    return if (regex_input.len > 0) regex_input.ptr else null;
 }
 
-export fn allocate_input_string(len: usize) [*]const u8 {
-    allocator.free(input_string);
-    input_string = allocator.alloc(u8, len) catch &.{};
-    return input_string.ptr;
+export fn allocate_input_string(len: usize) ?[*]const u8 {
+    std.log.info("allocating input string", .{});
+    input_string = gpa.realloc(input_string, len) catch {
+        std.log.err("allocation for input string failed", .{});
+        return null;
+    };
+    return if (input_string.len > 0) input_string.ptr else null;
 }
 
-export fn build_digraph() void {
-    var ast: Ast = Ast.parse(allocator, .posix_ere, input_regex) catch return;
-    defer ast.deinit(allocator);
+export fn build_digraph() usize {
+    std.log.info("building digraph with regex: \"{s}\"", .{regex_input});
+    var ast = Ast.parse(gpa, flavor, regex_input) catch |err| {
+        std.log.err("error while building ast: {}", .{err});
+        return 0;
+    };
+    defer ast.deinit(gpa);
 
-    std.log.info("{}", .{ast});
+    var nfa = Nfa.init(gpa, ast) catch |err| {
+        std.log.err("error while building nfa: {}", .{err});
+        return 0;
+    };
+    defer nfa.deinit(gpa);
+
+    var dfa = minimumDfa(gpa, nfa) catch |err| {
+        std.log.err("error while building dfa: {}", .{err});
+        return 0;
+    };
+    defer dfa.deinit(gpa);
+
+    if (graph.len > 0) gpa.free(graph);
+    var al: std.ArrayList(u8) = .init(gpa);
+    defer al.deinit();
+    dfa.viz(al.writer()) catch |err| {
+        std.log.err("error while building dot graph: {}", .{err});
+        return 0;
+    };
+    graph = al.toOwnedSliceSentinel(0) catch |err| {
+        std.log.err("error while building dot graph: {}", .{err});
+        return 0;
+    };
+
+    return 1;
 }
 
-export fn run_digraph() void {
+export fn run_digraph() usize {
     @panic("");
 }
 
-export fn render_digraph() [*:0]const u8 {
-    @panic("");
+export fn render_digraph() ?[*:0]const u8 {
+    return if (graph.len > 0) graph.ptr else null;
 }
