@@ -52,7 +52,7 @@ pub fn build(b: *std.Build) void {
     // contains all web files - handwritten and generated
     const web_dir = b.addWriteFiles();
     _ = web_dir.addCopyDirectory(b.path("src/web"), ".", .{
-        .include_extensions = &.{ "css", "html", "js" },
+        .include_extensions = &.{ "css", "html", "ico", "js" },
     });
     _ = web_dir.addCopyFile(wasm.getEmittedBin(), "re-fsm.wasm");
 
@@ -91,10 +91,13 @@ pub fn build(b: *std.Build) void {
         .name = "re-fsm-server",
         .root_module = server_mod,
     });
-    b.installArtifact(server);
     server_mod.addImport("build-info", build_info);
     server_mod.addImport("web", web_mod);
     server.step.dependOn(&gen_index.step);
+
+    b.installArtifact(server);
+    const install_server_step = b.step("server", "Install the server");
+    install_server_step.dependOn(&b.addInstallArtifact(server, .{}).step);
 
     const run_server = b.addRunArtifact(server);
     const run_server_step = b.step("run-server", "Run the server");
@@ -118,9 +121,12 @@ pub fn build(b: *std.Build) void {
         .name = "re-fsm-cli",
         .root_module = cli_mod,
     });
-    b.installArtifact(cli);
     cli_mod.addImport("re-fsm", lib_mod);
     cli_mod.addImport("build-info", build_info);
+
+    b.installArtifact(cli);
+    const install_cli_step = b.step("cli", "Install the command-line interface");
+    install_cli_step.dependOn(&b.addInstallArtifact(cli, .{}).step);
 
     const run_cli = b.addRunArtifact(cli);
     const run_cli_step = b.step("run-cli", "Run the command-line interface");

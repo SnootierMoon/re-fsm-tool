@@ -28,10 +28,7 @@ pub fn main() !void {
     const stdin = std.io.getStdIn();
     const stderr = std.io.getStdErr();
 
-    if (!std.posix.isatty(stdin.handle)) {
-        try stderr.writer().writeAll("Needs a TTY!");
-        return error.NotATerminal;
-    }
+    const in_terminal = !std.posix.isatty(stdin.handle);
 
     const flavor = args: {
         var args: std.process.ArgIterator = try .initWithAllocator(gpa);
@@ -57,8 +54,10 @@ pub fn main() !void {
     var input_buf: std.ArrayList(u8) = .init(gpa);
     defer input_buf.deinit();
     while (true) {
-        try buffered_out.writer().print("Enter Regex ({s}): ", .{flavor.info().name});
-        try buffered_out.flush();
+        if (in_terminal) {
+            try buffered_out.writer().print("Enter Regex ({s}): ", .{flavor.info().name});
+            try buffered_out.flush();
+        }
         input_buf.clearRetainingCapacity();
         in_buffered.reader().streamUntilDelimiter(input_buf.writer(), '\n', null) catch |err| switch (err) {
             error.EndOfStream => break,
@@ -83,6 +82,8 @@ pub fn main() !void {
         try dfa.viz(buffered_out.writer());
         try buffered_out.writer().writeByte('\n');
     }
-    try buffered_out.writer().print("\x1b[2K\r", .{});
+    if (in_terminal) {
+        try buffered_out.writer().print("\x1b[2K\r", .{});
+    }
     try buffered_out.flush();
 }
