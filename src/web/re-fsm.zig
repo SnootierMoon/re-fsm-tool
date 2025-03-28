@@ -86,7 +86,7 @@ export fn allocate_input_string(len: usize) ?[*]const u8 {
 }
 
 export fn build_digraph() usize {
-    std.log.info("building digraph with regex: \"{s}\"", .{regex_input});
+    std.log.info("building digraph regex:\"{s}\" flavor:\"{}\"", .{ regex_input, flavor });
     var ast = Ast.parse(gpa, flavor, regex_input) catch |err| {
         std.log.err("error while building ast: {}", .{err});
         return 0;
@@ -105,7 +105,9 @@ export fn build_digraph() usize {
     };
     defer dfa.deinit(gpa);
 
-    if (graph.len > 0) gpa.free(graph);
+    if (graph.len > 0) {
+        gpa.free(graph);
+    }
     var al: std.ArrayList(u8) = .init(gpa);
     defer al.deinit();
     dfa.viz(al.writer()) catch |err| {

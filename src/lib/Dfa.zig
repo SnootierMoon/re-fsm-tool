@@ -219,7 +219,9 @@ pub fn init(gpa: std.mem.Allocator, group: Nfa.DigraphGroup) error{OutOfMemory}!
         final[i] = final_state < state_sets[i].len and state_sets[i][final_state] < main_digraph.accept_end();
     }
 
-    return .{ .{ .arena = arena_instance.state, .states = dfa_states }, try deferred_gates.toOwnedSlice(gpa) };
+    const new_gates = try deferred_gates.toOwnedSlice(gpa);
+    errdefer gpa.free(new_gates);
+    return .{ .{ .arena = arena_instance.state, .states = dfa_states }, new_gates };
 }
 
 pub fn traverseEdge(edge_mask: u128, edges: []usize, ch: u7) ?usize {
@@ -242,18 +244,19 @@ pub fn viz(dfa: Dfa, writer: anytype) !void {
     const state_edge_mask = slice.items(.edge_mask);
     const state_edges = slice.items(.edges);
 
-    try writer.print("digraph{{node[shape=circle]", .{});
-    for (0..dfa.states.len) |i| {
-        if (!state_final[i]) {
-            try writer.print(" {}", .{i});
-        }
-    }
-    try writer.print(" node[shape=doublecircle]", .{});
+    try writer.print("digraph{{node[shape=doublecircle]", .{});
     for (0..dfa.states.len) |i| {
         if (state_final[i]) {
             try writer.print(" {}", .{i});
         }
     }
+    try writer.print(" node[shape=circle]", .{});
+    for (0..dfa.states.len) |i| {
+        if (!state_final[i]) {
+            try writer.print(" {}", .{i});
+        }
+    }
+    try writer.print(" node[width=0,fixedsize=true] \"\"->0", .{});
 
     for (state_edges, 0..) |edges, from| {
         var labeled_edges: [128]struct { to: usize, mask: u128 } = undefined;

@@ -234,10 +234,17 @@ pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
 
     const root_group = &groups[0];
     const root_digraph = &root_group.digraphs[0];
-    root_digraph.ir_count = 1;
-    root_digraph.nr_count = reject_count_of_ast[ast.node_tags.len - 1] - 1;
-    root_digraph.ia_count = 0;
-    root_digraph.na_count = accept_count_of_ast[ast.node_tags.len - 1];
+    if (ast.node_tags[ast.node_tags.len - 1] != .epsilon) {
+        root_digraph.ir_count = 1;
+        root_digraph.nr_count = reject_count_of_ast[ast.node_tags.len - 1] - 1;
+        root_digraph.ia_count = 0;
+        root_digraph.na_count = accept_count_of_ast[ast.node_tags.len - 1];
+    } else {
+        root_digraph.ir_count = 0;
+        root_digraph.nr_count = 0;
+        root_digraph.ia_count = 1;
+        root_digraph.na_count = 0;
+    }
     root_group.allocateStatesFor(root_digraph);
     reject_index_of_ast[ast.node_tags.len - 1] = 0;
     accept_index_of_ast[ast.node_tags.len - 1] = reject_count_of_ast[ast.node_tags.len - 1];
@@ -335,10 +342,17 @@ pub fn init(gpa: std.mem.Allocator, ast: Ast) error{OutOfMemory}!Nfa {
                         });
                     },
                 }
-                child_digraph.ir_count = 1;
-                child_digraph.nr_count = reject_count_of_ast[ast_index - 1] - 1;
-                child_digraph.ia_count = 0;
-                child_digraph.na_count = accept_count_of_ast[ast_index - 1];
+                if (ast.node_tags[ast_index - 1] != .epsilon) {
+                    child_digraph.ir_count = 1;
+                    child_digraph.nr_count = reject_count_of_ast[ast_index - 1] - 1;
+                    child_digraph.ia_count = 0;
+                    child_digraph.na_count = accept_count_of_ast[ast_index - 1];
+                } else {
+                    child_digraph.ir_count = 0;
+                    child_digraph.nr_count = 0;
+                    child_digraph.ia_count = 1;
+                    child_digraph.na_count = 0;
+                }
                 child_group.allocateStatesFor(child_digraph);
                 reject_index_of_ast[ast_index - 1] = child_digraph.reject_begin();
                 accept_index_of_ast[ast_index - 1] = child_digraph.accept_begin();
