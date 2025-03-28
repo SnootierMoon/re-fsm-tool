@@ -383,7 +383,9 @@ fn posixBracketExpression(s: *Stream) Error!u128 {
         return error.ParseFail;
     }
     // Section 9.3.5, item 8
-    if (end_index - begin_index >= 2 and (s.str[begin_index] == '.' or s.str[begin_index] == '=' or s.str[begin_index] == ':') and s.str[begin_index] == s.str[end_index]) {}
+    if (end_index - begin_index >= 2 and (s.str[begin_index] == '.' or s.str[begin_index] == '=' or s.str[begin_index] == ':') and s.str[begin_index] == s.str[end_index]) {
+        return error.ParseFail;
+    }
     return if (has_circumflex) ~mask else mask;
 }
 
@@ -534,7 +536,7 @@ pub fn posixBre(gpa: std.mem.Allocator, str: []const u8) Error!Ast {
                     }
                     try bld.endTerm(gpa);
                     try bld.endExpr(gpa);
-                    bld.curr_frame = bld.stack_frames.popOrNull() orelse return error.ParseFail;
+                    bld.curr_frame = bld.stack_frames.pop() orelse return error.ParseFail;
                     state = .after_atom;
                 },
                 '*' => {
@@ -652,9 +654,9 @@ pub fn posixBre(gpa: std.mem.Allocator, str: []const u8) Error!Ast {
                         continue;
                     },
                     .after_initial_circumflex,
-                    .after_atom,
                     .after_repetition_modifier,
                     => {},
+                    .after_atom => try bld.endAtom(gpa),
                     .after_dollar => {
                         try bld.pushSymbol(gpa, '$');
                         try bld.endAtom(gpa);
@@ -746,7 +748,7 @@ pub fn posixEre(gpa: std.mem.Allocator, str: []const u8) Error!Ast {
                 }
                 try bld.endTerm(gpa);
                 try bld.endExpr(gpa);
-                bld.curr_frame = bld.stack_frames.popOrNull() orelse return error.ParseFail;
+                bld.curr_frame = bld.stack_frames.pop() orelse return error.ParseFail;
                 state = .after_atom;
             },
             '*' => {
@@ -902,13 +904,12 @@ pub fn cmsc330(gpa: std.mem.Allocator, str: []const u8) Error!Ast {
             },
             ')' => {
                 switch (state) {
-                    .beginning_of_term,
-                    .not_after_atom => {},
+                    .beginning_of_term, .not_after_atom => {},
                     .after_atom => try bld.endAtom(gpa),
                 }
                 try bld.endTerm(gpa);
                 try bld.endExpr(gpa);
-                bld.curr_frame = bld.stack_frames.popOrNull() orelse return error.ParseFail;
+                bld.curr_frame = bld.stack_frames.pop() orelse return error.ParseFail;
                 state = .after_atom;
             },
             '*' => {
@@ -924,8 +925,7 @@ pub fn cmsc330(gpa: std.mem.Allocator, str: []const u8) Error!Ast {
             },
             '|' => {
                 switch (state) {
-                    .beginning_of_term,
-                    .not_after_atom => {},
+                    .beginning_of_term, .not_after_atom => {},
                     .after_atom => try bld.endAtom(gpa),
                 }
                 try bld.endTerm(gpa);
@@ -946,8 +946,7 @@ pub fn cmsc330(gpa: std.mem.Allocator, str: []const u8) Error!Ast {
     }
 
     switch (state) {
-        .beginning_of_term,
-        .not_after_atom => {},
+        .beginning_of_term, .not_after_atom => {},
         .after_atom => try bld.endAtom(gpa),
     }
     try bld.endTerm(gpa);

@@ -81,8 +81,10 @@ function update_regex_input() {
 
 function update_flavor() {
     const flavor = JSON.parse(form_flavor.value)
-    new Uint8Array(wasm.memory.buffer)[wasm.flavor.value] = form_flavor.value.value
+    new Uint8Array(wasm.memory.buffer)[wasm.flavor.value] = flavor.value
     regex_input.placeholder = flavor.example
+    console.log(flavor)
+    update_regex_input()
 }
 
 optimize_mode.innerText = info.optimize
