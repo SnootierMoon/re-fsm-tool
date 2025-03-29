@@ -87,9 +87,12 @@ export fn allocate_input_string(len: usize) ?[*]const u8 {
 
 export fn build_digraph() usize {
     std.log.info("building digraph regex:\"{s}\" flavor:\"{}\"", .{ regex_input, flavor });
-    var ast = Ast.parse(gpa, flavor, regex_input) catch |err| {
-        std.log.err("error while building ast: {}", .{err});
-        return 0;
+    var ast = Ast.parse(gpa, flavor, regex_input) catch |err| switch (err) {
+        error.ParseFail => return 0,
+        else => {
+            std.log.err("error while building ast: {}", .{err});
+            return 0;
+        },
     };
     defer ast.deinit(gpa);
 

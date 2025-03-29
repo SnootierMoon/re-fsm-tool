@@ -45,16 +45,18 @@ const { instance: { exports: wasm } } = await WebAssembly.instantiateStreaming(a
 const memory = wasm.memory
 const info = JSON.parse(str_span(wasm.info))
 
+window.i = info
+
 const viz = await Viz.instance();
 
 var svg;
 
 function update_regex_input() {
-    console.log(svg)
     if (svg != undefined) {
         output_box.removeChild(svg)
     }
     svg = undefined
+    localStorage.setItem("regex-input", regex_input.value)
     const encoded = new TextEncoder("utf-8").encode(regex_input.value)
     const ptr = wasm.allocate_regex_input(encoded.byteLength)
     if (0 <= ptr && ptr + encoded.byteLength <= wasm.memory.buffer.byteLength) {
@@ -81,9 +83,9 @@ function update_regex_input() {
 
 function update_flavor() {
     const flavor = JSON.parse(form_flavor.value)
+    localStorage.setItem("flavor", flavor.name)
     new Uint8Array(wasm.memory.buffer)[wasm.flavor.value] = flavor.value
     regex_input.placeholder = flavor.example
-    console.log(flavor)
     update_regex_input()
 }
 
@@ -109,4 +111,14 @@ info.flavors.forEach(flavor => {
 form_flavor.addEventListener("change", update_flavor)
 regex_input.addEventListener("input", update_regex_input)
 
-regex_input.placeholder = flavors[new Uint8Array(wasm.memory.buffer)[wasm.flavor.value]].example
+const stored_flavor = localStorage.getItem("flavor")
+const flavor_found = info.flavors.find(flavor => flavor.name === stored_flavor)
+if (flavor_found) {
+    form_flavor.value = JSON.stringify(flavor_found)
+    update_flavor()
+}
+const stored_regex_input = localStorage.getItem("regex-input")
+if (stored_regex_input !== "") {
+    regex_input.value = stored_regex_input
+    update_regex_input()
+}
