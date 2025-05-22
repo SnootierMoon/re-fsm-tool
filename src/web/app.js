@@ -112,7 +112,7 @@ form_flavor.addEventListener("change", update_flavor)
 regex_input.addEventListener("input", update_regex_input)
 
 const stored_flavor = localStorage.getItem("flavor")
-const flavor_found = info.flavors.find(flavor => flavor.name === stored_flavor)
+const flavor_found = info.flavors.find(flavor => flavor.name === stored_flavor) or "posix_bre"
 if (flavor_found) {
     form_flavor.value = JSON.stringify(flavor_found)
     update_flavor()
